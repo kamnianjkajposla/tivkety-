@@ -1,0 +1,13 @@
+{
+  "name": "discord-verify-bot",
+  "version": "1.0.0",
+  "description": "Bot weryfikacji na Discord",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.0",
+    "express": "^4.19.2"
+  }
+}
