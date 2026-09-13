@@ -49,24 +49,24 @@ client.on('guildMemberAdd', async member => {
     }
 });
 
-// Obsługa wiadomości z wykrzyknikiem (!) oraz przycisków
+// Obsługa komendy !weryfikacja @RolaDocelowa
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
-    // Komenda: !weryfikacja @RolaDocelowa
     if (message.content.startsWith('!weryfikacja')) {
-        // Sprawdzanie uprawnień Administratora
         if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return message.reply('Nie masz uprawnień Administratora do użycia tej komendy!');
         }
 
         const targetRole = message.mentions.roles.first();
         if (!targetRole) {
-            return message.reply('Musisz oznaczyć rolę, którą ma nadawać bot! Przykład: `!weryfikacja @Zweryfikowany`');
+            return message.reply('Musisz oznaczyć rolę docelową! Przykład: `!weryfikacja @Zweryfikowany`');
         }
 
         const guild = message.guild;
-        const channel = message.channel;
+        const verificationChannel = message.channel;
+
+        await message.reply('Trwa automatyczna konfiguracja uprawnień na serwerze...');
 
         try {
             // 1. Znajdujemy lub tworzymy rolę "Niezweryfikowany"
@@ -79,18 +79,35 @@ client.on('messageCreate', async message => {
                 });
             }
 
-            // 2. Automatyczne ustawienie uprawnień na tym kanale (żeby rola Niezweryfikowany miała dostęp TYLKO tutaj)
-            await channel.permissionOverwrites.set([
+            // 2. BLOKUJEMY CAŁY SERWER: Przechodzimy przez wszystkie kanały i kategorie
+            const channels = guild.channels.cache.values();
+            for (const channel of channels) {
+                // Pomijamy kanał weryfikacyjny, go skonfigurujemy osobno
+                if (channel.id === verificationChannel.id) continue;
+
+                try {
+                    await channel.permissionOverwrites.edit(unverifiedRole, {
+                        ViewChannel: false // Ukrywa kanał przed niezweryfikowanym
+                    });
+                } catch (err) {
+                    console.log(`Nie udało się zmienić uprawnień dla kanału ${channel.name}`);
+                }
+            }
+
+            // 3. ODKRYWAMY TYLKO KANAŁ WERYFIKACJI
+            await verificationChannel.permissionOverwrites.set([
                 {
-                    id: guild.id, // @everyone
-                    deny: [PermissionsBitField.Flags.ViewChannel],
+                    id: guild.id, // @everyone widzi kanał, ale nie pisze
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
+                    deny: [PermissionsBitField.Flags.SendMessages],
                 },
                 {
-                    id: unverifiedRole.id, // Niezweryfikowany
-                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
+                    id: unverifiedRole.id, // Rola Niezweryfikowany widzi tylko ten kanał
+                    allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
+                    deny: [PermissionsBitField.Flags.SendMessages],
                 },
                 {
-                    id: client.user.id, // Bot
+                    id: client.user.id, // Bot ma pełny dostęp
                     allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels],
                 }
             ]);
@@ -98,7 +115,7 @@ client.on('messageCreate', async message => {
             // Zapisujemy wybraną rolę w pamięci
             verifiedRoles.set(guild.id, targetRole.id);
 
-            // Tworzymy przycisk
+            // Tworzymy przycisk weryfikacji
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('verify_button')
@@ -106,17 +123,15 @@ client.on('messageCreate', async message => {
                     .setStyle(ButtonStyle.Success)
             );
 
-            await message.reply(`Panel weryfikacyjny został pomyślnie skonfigurowany na tym kanale! Rola po weryfikacji: **${targetRole.name}**`);
-            
-            // Wysyłamy wiadomość z przyciskiem
-            await channel.send({
-                content: 'Kliknij poniższy przycisk, aby uzyskać dostęp do całego serwera:',
+            // Wysyłamy panel z przyciskiem na kanał weryfikacji
+            await verificationChannel.send({
+                content: '**Weryfikacja serwera**\nKliknij poniższy przycisk, aby odblokować dostęp do całego serwera:',
                 components: [row]
             });
 
         } catch (error) {
             console.error(error);
-            message.reply('Wystąpił błąd podczas konfiguracji uprawnień. Upewnij się, że bot ma najwyższą pozycję w zakładce Role!');
+            message.channel.send('Wystąpił błąd podczas blokowania kanałów. Upewnij się, że rola bota jest najwyżej w zakładce Role na serwerze!');
         }
     }
 });
@@ -141,13 +156,14 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
+            // Nadaje rolę zweryfikowaną i zabiera niezweryfikowanego
             await interaction.member.roles.add(verifiedRole);
             
             if (unverifiedRole && interaction.member.roles.cache.has(unverifiedRole.id)) {
                 await interaction.member.roles.remove(unverifiedRole);
             }
 
-            await interaction.reply({ content: 'Pomyślnie zweryfikowano!', ephemeral: true });
+            await interaction.reply({ content: 'Pomyślnie zweryfikowano! Masz teraz dostęp do całego serwera.', ephemeral: true });
         } catch (error) {
             console.error(error);
             await interaction.reply({ content: 'Wystąpił błąd. Upewnij się, że rola bota jest wyżej w hierarchii niż nadawane role!', ephemeral: true });
