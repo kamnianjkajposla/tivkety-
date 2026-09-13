@@ -1,12 +1,49 @@
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField } = require('discord.js');
 const express = require('express');
 
-// --- SERWER HTTP DLA RENDERA ---
+// --- SERWER HTTP DLA RENDERA (ZE STATYSTYKAMI) ---
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// Przechowujemy referencję do klienta bota, żeby serwer HTTP mógł odczytać dane
+let clientInstance = null;
+
+// Strona główna
 app.get('/', (req, res) => {
-    res.send('Bot weryfikacji dziala poprawnie!');
+    res.send('<h1>Bot weryfikacji dziala poprawnie!</h1><p>Wejdz na <a href="/stats">/stats</a>, aby zobaczyc statystyki bota.</p>');
+});
+
+// Strona ze statystykami
+app.get('/stats', (req, res) => {
+    if (!clientInstance || !clientInstance.isReady()) {
+        return res.send('<h1>Bot jest w trakcie uruchamiania... Spróbuj ponownie za chwilę.</h1>');
+    }
+
+    const totalServers = clientInstance.guilds.cache.size;
+    // Liczymy wszystkich użytkowników na wszystkich serwerach bota
+    const totalUsers = clientInstance.guilds.cache.reduce((acc, guild) => acc + guild.memberCount, 0);
+
+    res.send(`
+        <html>
+            <head>
+                <title>Statystyki Bota</title>
+                <style>
+                    body { font-family: Arial, sans-serif; background-color: #313338; color: #fff; text-align: center; padding-top: 50px; }
+                    .card { background-color: #2b2d31; display: inline-block; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+                    h1 { color: #5865F2; }
+                    .stat { font-size: 24px; margin: 15px 0; }
+                </style>
+            </head>
+            <body>
+                <div class="card">
+                    <h1>Statystyki Bota Weryfikacji</h1>
+                    <div class="stat">Serwery: <b>${totalServers}</b></div>
+                    <div class="stat">Użytkownicy: <b>${totalUsers}</b></div>
+                    <p style="color: #949ba4; margin-top: 20px;">Status: Online 24/7</p>
+                </div>
+            </body>
+        </html>
+    `);
 });
 
 app.listen(PORT, () => {
@@ -23,7 +60,8 @@ const client = new Client({
     ]
 });
 
-// Przechowywanie wybranej roli po weryfikacji dla każdego serwera
+clientInstance = client; // Przypisujemy klienta do zmiennej dla serwera HTTP
+
 const verifiedRoles = new Map();
 
 client.once('ready', () => {
@@ -69,7 +107,6 @@ client.on('messageCreate', async message => {
         await message.reply('Trwa automatyczna konfiguracja uprawnień na serwerze...');
 
         try {
-            // 1. Znajdujemy lub tworzymy rolę "Niezweryfikowany"
             let unverifiedRole = guild.roles.cache.find(r => r.name.toLowerCase() === 'niezweryfikowany');
             if (!unverifiedRole) {
                 unverifiedRole = await guild.roles.create({
@@ -79,43 +116,38 @@ client.on('messageCreate', async message => {
                 });
             }
 
-            // 2. BLOKUJEMY CAŁY SERWER: Przechodzimy przez wszystkie kanały i kategorie
             const channels = guild.channels.cache.values();
             for (const channel of channels) {
-                // Pomijamy kanał weryfikacyjny, go skonfigurujemy osobno
                 if (channel.id === verificationChannel.id) continue;
 
                 try {
                     await channel.permissionOverwrites.edit(unverifiedRole, {
-                        ViewChannel: false // Ukrywa kanał przed niezweryfikowanym
+                        ViewChannel: false
                     });
                 } catch (err) {
                     console.log(`Nie udało się zmienić uprawnień dla kanału ${channel.name}`);
                 }
             }
 
-            // 3. ODKRYWAMY TYLKO KANAŁ WERYFIKACJI
             await verificationChannel.permissionOverwrites.set([
                 {
-                    id: guild.id, // @everyone widzi kanał, ale nie pisze
+                    id: guild.id,
                     allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
                     deny: [PermissionsBitField.Flags.SendMessages],
                 },
                 {
-                    id: unverifiedRole.id, // Rola Niezweryfikowany widzi tylko ten kanał
+                    id: unverifiedRole.id,
                     allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.ReadMessageHistory],
                     deny: [PermissionsBitField.Flags.SendMessages],
                 },
                 {
-                    id: client.user.id, // Bot ma pełny dostęp
+                    id: client.user.id,
                     allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels],
                 }
             ]);
 
-            // Zapisujemy wybraną rolę w pamięci
             verifiedRoles.set(guild.id, targetRole.id);
 
-            // Tworzymy przycisk weryfikacji
             const row = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                     .setCustomId('verify_button')
@@ -123,7 +155,6 @@ client.on('messageCreate', async message => {
                     .setStyle(ButtonStyle.Success)
             );
 
-            // Wysyłamy panel z przyciskiem na kanał weryfikacji
             await verificationChannel.send({
                 content: '**Weryfikacja serwera**\nKliknij poniższy przycisk, aby odblokować dostęp do całego serwera:',
                 components: [row]
@@ -156,7 +187,6 @@ client.on('interactionCreate', async interaction => {
         }
 
         try {
-            // Nadaje rolę zweryfikowaną i zabiera niezweryfikowanego
             await interaction.member.roles.add(verifiedRole);
             
             if (unverifiedRole && interaction.member.roles.cache.has(unverifiedRole.id)) {
