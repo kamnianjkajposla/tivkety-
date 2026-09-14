@@ -1,15 +1,13 @@
 {
-  "name": "discord-verify-bot",
+  "name": "tivkety",
   "version": "1.0.0",
-  "description": "Bot weryfikacji z panelem WWW",
+  "description": "Bot weryfikacji z prostym panelem",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "discord.js": "^14.14.0",
-    "express": "^4.19.2",
-    "express-session": "^1.18.0",
-    "node-fetch": "^2.7.0"
+    "express": "^4.19.2"
   }
 }
