@@ -21,6 +21,9 @@ usersDB.set('sigam11k@wp.pl', 'kicimici');
 const loginHistory = [];
 
 let clientInstance = null;
+
+// Używamy obiektu zamiast zwykłej mapy, żeby łatwo można było zapisać (lub ewentualnie rozbudować)
+// verifiedRoles przechowuje przypisane role dla serwerów
 const verifiedRoles = new Map();
 
 // STRONA LOGOWANIA (CZYSTA, BEZ STATYSTYK)
@@ -266,17 +269,26 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'verify_button') {
         const guildId = interaction.guild.id;
-        const verifiedRoleId = verifiedRoles.get(guildId);
-
+        
+        // Zabezpieczenie: Jeśli serwer nie ma zapisanej roli w pamięci po restarcie, sprawdzamy czy rola "Zweryfikowany" istnieje lub informujemy administratora
+        let verifiedRoleId = verifiedRoles.get(guildId);
+        
         if (!verifiedRoleId) {
-            return interaction.reply({ content: 'Weryfikacja nie została skonfigurowana dla tego serwera.', ephemeral: true });
+            // Automatyczne zabezpieczenie zapasowe: Szuka roli "Zweryfikowany" na serwerze, żeby przycisk działał nawet po restarcie bota
+            const fallbackRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'zweryfikowany');
+            if (fallbackRole) {
+                verifiedRoleId = fallbackRole.id;
+                verifiedRoles.set(guildId, verifiedRoleId);
+            } else {
+                return interaction.reply({ content: 'Weryfikacja nie została skonfigurowana lub rola nie została przypisana. Skonfiguruj ją ponownie w panelu.', ephemeral: true });
+            }
         }
 
         const verifiedRole = interaction.guild.roles.cache.get(verifiedRoleId);
         const unverifiedRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'niezweryfikowany');
 
         if (!verifiedRole) {
-            return interaction.reply({ content: 'Nie znaleziono docelowej roli weryfikacji.', ephemeral: true });
+            return interaction.reply({ content: 'Nie znaleziono docelowej roli weryfikacji na serwerze.', ephemeral: true });
         }
 
         try {
