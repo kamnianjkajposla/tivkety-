@@ -20,11 +20,14 @@ usersDB.set('sigam11k@wp.pl', 'kicimici');
 let clientInstance = null;
 const verifiedRoles = new Map();
 
-// STRONA LOGOWANIA Z GENERATOREM DANYCH
+// STRONA LOGOWANIA ZE STATYSTYKAMI
 app.get('/', (req, res) => {
     if (req.session.loggedIn) {
         return res.redirect('/dashboard');
     }
+
+    const totalServers = clientInstance && clientInstance.isReady() ? clientInstance.guilds.cache.size : 0;
+    const totalUsers = clientInstance && clientInstance.isReady() ? clientInstance.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0) : 0;
 
     res.send(`
         <html>
@@ -36,49 +39,42 @@ app.get('/', (req, res) => {
                     h1 { color: #5865F2; text-align: center; font-size: 22px; }
                     label { display: block; margin-top: 15px; color: #dbdee1; }
                     input { width: 100%; padding: 10px; margin-top: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; box-sizing: border-box; }
-                    button { width: 100%; background: #5865F2; color: #fff; padding: 12px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; font-weight: bold; }
+                    button { width: 100%; background: #5865F2; color: #fff; padding: 12px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; font-weight: bold; }
                     button:hover { background: #4752c4; }
-                    .secondary-btn { background: #4e5058; margin-top: 8px; }
-                    .secondary-btn:hover { background: #60636b; }
+                    .stats { margin-top: 25px; padding-top: 15px; border-top: 1px solid #4e5058; font-size: 14px; color: #949ba4; text-align: center; }
                 </style>
-                <script>
-                    function generateAndFill() {
-                        const randomUser = 'user_' + Math.random().toString(36).substring(2, 8) + '@wp.pl';
-                        const randomPass = 'pass_' + Math.random().toString(36).substring(2, 8);
-                        document.getElementById('emailInput').value = randomUser;
-                        document.getElementById('passInput').value = randomPass;
-                    }
-                </script>
             </head>
             <body>
                 <div class="card">
                     <h1>Logowanie do Panelu</h1>
                     <form method="POST" action="/login">
                         <label>Email:</label>
-                        <input type="text" name="email" id="emailInput" required placeholder="np. sigam11k@wp.pl">
+                        <input type="text" name="email" required>
                         
                         <label>Hasło:</label>
-                        <input type="password" name="password" id="passInput" required placeholder="np. kicimici">
+                        <input type="password" name="password" required>
                         
                         <button type="submit">Zaloguj się</button>
-                        <button type="button" class="secondary-btn" onclick="generateAndFill()">Generuj losowe dane</button>
                     </form>
+                    
+                    <div class="stats">
+                        Statystyki bota:<br>
+                        Serwery: <b>${totalServers}</b> | Użytkownicy: <b>${totalUsers}</b>
+                    </div>
                 </div>
             </body>
         </html>
     `);
 });
 
-// Obsługa logowania i automatycznego tworzenia konta przy użyciu wygenerowanych danych
+// Obsługa logowania i automatycznego tworzenia nowego konta, jeśli podano inne dane
 app.post('/login', (req, res) => {
     const { email, password } = req.body;
 
-    // Jeśli konto nie istnieje w bazie, automatycznie je tworzymy (dla wygenerowanych danych)
     if (!usersDB.has(email)) {
         usersDB.set(email, password);
     }
 
-    // Sprawdzamy poprawność hasła dla tego emaila
     if (usersDB.get(email) === password) {
         req.session.loggedIn = true;
         req.session.email = email;
@@ -128,10 +124,10 @@ app.get('/dashboard', (req, res) => {
                         <select name="guildId">${guilds}</select>
                         
                         <label>ID kanału weryfikacji:</label>
-                        <input type="text" name="channelId" placeholder="Wklej ID kanału tekstowego" required>
+                        <input type="text" name="channelId" required>
                         
                         <label>ID roli po weryfikacji:</label>
-                        <input type="text" name="roleId" placeholder="Wklej ID roli (np. 123456789...)" required>
+                        <input type="text" name="roleId" required>
                         
                         <button type="submit">Wyślij panel weryfikacji</button>
                     </form>
@@ -175,7 +171,7 @@ app.post('/configure', async (req, res) => {
     }
 });
 
-// Statystyki dla UptimeRobot
+// Odrębna podstrona /stats (również działa dla UptimeRobot)
 app.get('/stats', (req, res) => {
     if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia...');
     res.send(`Serwery: ${clientInstance.guilds.cache.size}, Użytkownicy: ${clientInstance.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0)}`);
