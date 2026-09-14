@@ -1,13 +1,14 @@
 {
   "name": "tivkety",
   "version": "1.0.0",
-  "description": "Bot weryfikacji z prostym panelem",
+  "description": "Bot weryfikacji z panelem logowania",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
     "discord.js": "^14.14.0",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "express-session": "^1.18.0"
   }
 }
