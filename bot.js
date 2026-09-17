@@ -6,9 +6,8 @@ const session = require('express-session');
 // ⚙️ KONFIGURACJA OAUTH2 (DISCORD LOGIN)
 // ==========================================
 const CONFIG = {
-    CLIENT_ID: process.env.DISCORD_CLIENT_ID || 'TUTAJ_CLIENT_ID',
-    CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'TUTAJ_CLIENT_SECRET',
-    // Dokładny adres przekierowania zgodny z Discord Developer Portal
+    CLIENT_ID: process.env.DISCORD_CLIENT_ID || '1548644251884195880',
+    CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'emTOywckSfXFKr8xCwWNiJW_6az1IAE0',
     REDIRECT_URI: process.env.DISCORD_REDIRECT_URI || 'https://tivkety.onrender.com/auth/discord/callback',
     PORT: process.env.PORT || 10000,
     SESSION_SECRET: 'tajnykluczsosession123'
