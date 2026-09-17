@@ -1,6 +1,8 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, PermissionsBitField } = require('discord.js');
 const express = require('express');
 const session = require('express-session');
+const fs = require('fs');
+const path = require('path');
 
 // ==========================================
 // ⚙️ KONFIGURACJA OAUTH2 (DISCORD LOGIN)
@@ -10,8 +12,36 @@ const CONFIG = {
     CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'emTOywckSfXFKr8xCwWNiJW_6az1IAE0',
     REDIRECT_URI: process.env.DISCORD_REDIRECT_URI || 'https://tivkety.onrender.com/auth/discord/callback',
     PORT: process.env.PORT || 10000,
-    SESSION_SECRET: 'tajnykluczsosession123'
+    SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123'
 };
+
+// --- BAZA DANYCH W PLIKU (ZAPIS PO ZAMKNIĘCIU) ---
+const DB_FILE = path.join(__dirname, 'database.json');
+
+function loadDatabase() {
+    try {
+        if (fs.existsSync(DB_FILE)) {
+            const data = fs.readFileSync(DB_FILE, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (err) {
+        console.error('Błąd odczytu bazy danych:', err);
+    }
+    return {};
+}
+
+function saveDatabase(db) {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), 'utf8');
+    } catch (err) {
+        console.error('Błąd zapisu bazy danych:', err);
+    }
+}
+
+// Globalny obiekt konfiguracyjny serwerów
+const serverConfigs = loadDatabase(); // { guildId: { channelId, roleId } }
+const loginHistory = [];
+let clientInstance = null;
 
 // --- SERWER HTTP I PANEL WWW ---
 const app = express();
@@ -19,13 +49,10 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
     secret: CONFIG.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false
+    resave: true,
+    saveUninitialized: true,
+    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 } // Zapamiętywanie sesji na 7 dni
 }));
-
-let clientInstance = null;
-const verifiedRoles = new Map();
-const loginHistory = [];
 
 // STRONA LOGOWANIA (PRZEZ DISCORDA)
 app.get('/', (req, res) => {
@@ -114,7 +141,7 @@ app.get('/logout', (req, res) => {
     res.redirect('/');
 });
 
-// PANEL STEROWANIA (LISTA SERWERÓW, DODawanie BOTA ORAZ KONFIGURACJA)
+// PANEL STEROWANIA
 app.get('/dashboard', (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
 
@@ -125,7 +152,6 @@ app.get('/dashboard', (req, res) => {
     const user = req.session.user;
     const userGuilds = req.session.userGuilds || [];
 
-    // Filtrujemy serwery: użytkownik musi być właścicielem lub mieć uprawnienie Administrator
     const adminGuilds = userGuilds.filter(g => {
         return (BigInt(g.permissions) & BigInt(0x8)) === BigInt(0x8) || g.owner;
     });
@@ -137,27 +163,26 @@ app.get('/dashboard', (req, res) => {
     } else {
         adminGuilds.forEach(g => {
             const botIsInGuild = clientInstance.guilds.cache.has(g.id);
+            const savedConfig = serverConfigs[g.id] || {};
             
             serversHtml += `<div style="background: #1e1f22; padding: 15px; border-radius: 6px; margin-bottom: 15px;">`;
             serversHtml += `<h4 style="margin: 0 0 10px 0; color: #fff; font-size: 15px;">🌐 ${g.name}</h4>`;
 
             if (botIsInGuild) {
-                // Bot jest na serwerze - pokazujemy formularz konfiguracji weryfikacji
                 serversHtml += `
                     <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na tym serwerze</p>
                     <form method="POST" action="/configure">
                         <input type="hidden" name="guildId" value="${g.id}">
                         <label style="font-size: 12px; color: #dbdee1;">ID kanału weryfikacji:</label>
-                        <input type="text" name="channelId" placeholder="np. 123456789..." required style="margin-bottom: 8px;">
+                        <input type="text" name="channelId" value="${savedConfig.channelId || ''}" placeholder="np. 123456789..." required style="margin-bottom: 8px;">
                         
                         <label style="font-size: 12px; color: #dbdee1;">ID roli po weryfikacji:</label>
-                        <input type="text" name="roleId" placeholder="np. 987654321..." required style="margin-bottom: 10px;">
+                        <input type="text" name="roleId" value="${savedConfig.roleId || ''}" placeholder="np. 987654321..." required style="margin-bottom: 10px;">
                         
-                        <button type="submit" style="margin-top: 0; padding: 8px; font-size: 13px;">Wyślij panel weryfikacji</button>
+                        <button type="submit" style="margin-top: 0; padding: 8px; font-size: 13px;">Zapisz i wyślij panel</button>
                     </form>
                 `;
             } else {
-                // Bota nie ma - pokazujemy przycisk dodawania
                 const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&permissions=8&scope=bot&guild_id=${g.id}&disable_guild_select=true`;
                 serversHtml += `
                     <p style="color: #f0b232; font-size: 12px; margin: 0 0 10px 0;">⚠ Bota nie ma na tym serwerze</p>
@@ -195,7 +220,6 @@ app.get('/dashboard', (req, res) => {
             </head>
             <body>
                 <div class="container">
-                    <!-- Kafel 1: Lista serwerów i zarządzanie -->
                     <div class="card">
                         <h1>Panel Tivkety</h1>
                         <p style="font-size: 13px; color: #949ba4; text-align: center; margin-bottom: 20px;">Zalogowany: <b>${user.username}</b></p>
@@ -208,10 +232,8 @@ app.get('/dashboard', (req, res) => {
                         <a href="/logout" class="logout">Wyloguj się</a>
                     </div>
 
-                    <!-- Kafel 2: Statystyki i Historia Logowań -->
                     <div class="card">
                         <h1>Statystyki i Logowania</h1>
-                        
                         <h3>Statystyki Bota</h3>
                         <div class="stat-box">Serwery: <b>${totalServers}</b></div>
                         <div class="stat-box">Łącznie użytkowników: <b>${totalUsers}</b></div>
@@ -227,7 +249,7 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-// Zapis konfiguracji weryfikacji
+// Zapis konfiguracji i wysyłanie panelu
 app.post('/configure', async (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
     const { guildId, channelId, roleId } = req.body;
@@ -239,7 +261,9 @@ app.post('/configure', async (req, res) => {
     if (!channel) return res.send('Nie znaleziono kanału o podanym ID na tym serwerze. <a href="/dashboard">Wróć</a>');
 
     try {
-        verifiedRoles.set(guildId, roleId);
+        // Zapis do pamięci oraz do pliku trwałego (database.json)
+        serverConfigs[guildId] = { channelId, roleId };
+        saveDatabase(serverConfigs);
 
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
@@ -253,17 +277,11 @@ app.post('/configure', async (req, res) => {
             components: [row]
         });
 
-        res.send('<h2>Panel weryfikacyjny został pomyślnie wysłany na kanał!</h2><a href="/dashboard">Wróć do panelu</a>');
+        res.send('<h2>Panel weryfikacyjny został wysłany, a ustawienia zapisane!</h2><a href="/dashboard">Wróć do panelu</a>');
     } catch (err) {
         console.error(err);
-        res.send('Wystąpił błąd. Upewnij się, że bot ma uprawnienia administratora na tym serwerze. <a href="/dashboard">Wróć</a>');
+        res.send('Wystąpił błąd. Upewnij się, że bot ma uprawnienia do pisania na tym kanale. <a href="/dashboard">Wróć</a>');
     }
-});
-
-// Statystyki dla UptimeRobot
-app.get('/stats', (req, res) => {
-    if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia...');
-    res.send(`Serwery: ${clientInstance.guilds.cache.size}, Użytkownicy: ${clientInstance.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0)}`);
 });
 
 app.listen(CONFIG.PORT, () => console.log(`Serwer HTTP uruchomiony na porcie ${CONFIG.PORT}`));
@@ -280,10 +298,39 @@ const client = new Client({
 
 clientInstance = client;
 
-client.once('ready', () => {
+// Rejestracja komend Slash (np. /weryfikacja)
+const commands = [
+    new SlashCommandBuilder()
+        .setName('weryfikacja')
+        .setDescription('Wysyła panel weryfikacyjny na wyznaczony kanał')
+        .addChannelOption(option => 
+            option.setName('kanal')
+                .setDescription('Kanał, na który ma trafić panel weryfikacji')
+                .setRequired(true))
+        .addRoleOption(option =>
+            option.setName('rola')
+                .setDescription('Rola nadawana po udanej weryfikacji')
+                .setRequired(true))
+].map(command => command.toJSON());
+
+client.once('ready', async () => {
     console.log(`Zalogowano jako ${client.user.tag}!`);
+
+    // Rejestracja globalna komend slash
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    try {
+        console.log('Rozpoczęto odświeżanie komend slash (/).');
+        await rest.put(
+            Routes.applicationCommands(CONFIG.CLIENT_ID),
+            { body: commands },
+        );
+        console.log('Pomyślnie zarejestrowano komendy slash.');
+    } catch (error) {
+        console.error('Błąd rejestracji komend:', error);
+    }
 });
 
+// Automatyczne nadawanie roli "Niezweryfikowany" przy wejściu
 client.on('guildMemberAdd', async member => {
     try {
         let unverifiedRole = member.guild.roles.cache.find(r => r.name.toLowerCase() === 'niezweryfikowany');
@@ -296,39 +343,77 @@ client.on('guildMemberAdd', async member => {
     }
 });
 
+// Obsługa interakcji (przyciski oraz komendy slash)
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isButton()) return;
+    // 1. Obsługa Komendy Slash /weryfikacja
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'weryfikacja') {
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return interaction.reply({ content: 'Musisz być administratorem, aby użyć tej komendy!', ephemeral: true });
+            }
 
-    if (interaction.customId === 'verify_button') {
-        const guildId = interaction.guild.id;
-        let verifiedRoleId = verifiedRoles.get(guildId);
-        
-        if (!verifiedRoleId) {
-            const fallbackRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'zweryfikowany');
-            if (fallbackRole) {
-                verifiedRoleId = fallbackRole.id;
-                verifiedRoles.set(guildId, verifiedRoleId);
-            } else {
-                return interaction.reply({ content: 'Weryfikacja nie została skonfigurowana lub rola nie została przypisana. Skonfiguruj ją ponownie w panelu.', ephemeral: true });
+            const channel = interaction.options.getChannel('kanal');
+            const role = interaction.options.getRole('rola');
+            const guildId = interaction.guild.id;
+
+            // Zapisz konfigurację do bazy danych
+            serverConfigs[guildId] = { channelId: channel.id, roleId: role.id };
+            saveDatabase(serverConfigs);
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('verify_button')
+                    .setLabel('Zweryfikuj się')
+                    .setStyle(ButtonStyle.Success)
+            );
+
+            try {
+                await channel.send({
+                    content: '**Weryfikacja serwera**\nKliknij poniższy przycisk, aby odblokować dostęp do całego serwera:',
+                    components: [row]
+                });
+                await interaction.reply({ content: `Pomyślnie wysłano panel weryfikacyjny na kanał ${channel} z rolą ${role}!`, ephemeral: true });
+            } catch (err) {
+                console.error(err);
+                await interaction.reply({ content: 'Wystąpił błąd podczas wysyłania panelu. Sprawdź uprawnienia bota.', ephemeral: true });
             }
         }
+    }
 
-        const verifiedRole = interaction.guild.roles.cache.get(verifiedRoleId);
-        const unverifiedRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'niezweryfikowany');
-
-        if (!verifiedRole) {
-            return interaction.reply({ content: 'Nie znaleziono docelowej roli weryfikacji na serwerze.', ephemeral: true });
-        }
-
-        try {
-            await interaction.member.roles.add(verifiedRole);
-            if (unverifiedRole && interaction.member.roles.cache.has(unverifiedRole.id)) {
-                await interaction.member.roles.remove(unverifiedRole);
+    // 2. Obsługa przycisku weryfikacji
+    if (interaction.isButton()) {
+        if (interaction.customId === 'verify_button') {
+            const guildId = interaction.guild.id;
+            const config = serverConfigs[guildId];
+            
+            let verifiedRoleId = config ? config.roleId : null;
+            
+            if (!verifiedRoleId) {
+                const fallbackRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'zweryfikowany');
+                if (fallbackRole) {
+                    verifiedRoleId = fallbackRole.id;
+                } else {
+                    return interaction.reply({ content: 'Weryfikacja nie została jeszcze skonfigurowana dla tego serwera.', ephemeral: true });
+                }
             }
-            await interaction.reply({ content: 'Pomyślnie zweryfikowano!', ephemeral: true });
-        } catch (error) {
-            console.error(error);
-            await interaction.reply({ content: 'Wystąpił błąd. Sprawdź pozycję roli bota.', ephemeral: true });
+
+            const verifiedRole = interaction.guild.roles.cache.get(verifiedRoleId);
+            const unverifiedRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'niezweryfikowany');
+
+            if (!verifiedRole) {
+                return interaction.reply({ content: 'Nie znaleziono docelowej roli weryfikacji na serwerze.', ephemeral: true });
+            }
+
+            try {
+                await interaction.member.roles.add(verifiedRole);
+                if (unverifiedRole && interaction.member.roles.cache.has(unverifiedRole.id)) {
+                    await interaction.member.roles.remove(unverifiedRole);
+                }
+                await interaction.reply({ content: 'Pomyślnie zweryfikowano!', ephemeral: true });
+            } catch (error) {
+                console.error(error);
+                await interaction.reply({ content: 'Wystąpił błąd. Sprawdź pozycję roli bota.', ephemeral: true });
+            }
         }
     }
 });
