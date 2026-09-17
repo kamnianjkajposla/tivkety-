@@ -13,7 +13,6 @@ try {
             credential: admin.credential.cert(serviceAccount)
         });
     } else {
-        // Fallback do pliku lokalnego serviceAccountKey.json (jeśli uruchamiasz na komputerze)
         const serviceAccount = require('./serviceAccountKey.json');
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
@@ -21,20 +20,17 @@ try {
     }
     console.log("Połączono z Firebase pomyślnie!");
 } catch (e) {
-    console.log("Błąd inicjalizacji Firebase: Upewnij się, że poświadczenia są skonfigurowane w Render (FIREBASE_SERVICE_ACCOUNT) lub jako plik serviceAccountKey.json.");
+    console.log("Błąd inicjalizacji Firebase: Upewnij się, że poświadczenia są skonfigurowane.");
 }
 
 const db = admin.apps.length ? admin.firestore() : null;
 
-// Funkcje pomocnicze do Firestore
 async function getServerConfig(guildId) {
     if (!db) return {};
     try {
         const docRef = db.collection('server_configs').doc(guildId);
         const doc = await docRef.get();
-        if (doc.exists) {
-            return doc.data();
-        }
+        if (doc.exists) return doc.data();
     } catch (err) {
         console.error('Błąd pobierania konfiguracji z Firebase:', err);
     }
@@ -76,9 +72,7 @@ app.use(session({
 }));
 
 app.get('/', (req, res) => {
-    if (req.session.loggedIn) {
-        return res.redirect('/dashboard');
-    }
+    if (req.session.loggedIn) return res.redirect('/dashboard');
 
     const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
 
@@ -186,6 +180,27 @@ app.get('/dashboard', async (req, res) => {
             serversHtml += `<h4 style="margin: 0 0 10px 0; color: #fff; font-size: 15px;">🌐 ${g.name}</h4>`;
 
             if (botIsInGuild) {
+                const guildObj = clientInstance.guilds.cache.get(g.id);
+                const channels = guildObj.channels.cache.filter(c => c.type === ChannelType.GuildText);
+                const roles = guildObj.roles.cache.filter(r => !r.managed && r.name !== '@everyone');
+
+                let channelOptions = '<option value="">-- Wybierz kanał --</option>';
+                channels.forEach(c => {
+                    channelOptions += `<option value="${c.id}">#${c.name}</option>`;
+                });
+
+                let roleOptions = '<option value="">-- Wybierz rolę --</option>';
+                roles.forEach(r => {
+                    roleOptions += `<option value="${r.id}">@${r.name}</option>`;
+                });
+
+                // Generowanie selectów z zaznaczeniem zapisanej wartości
+                const makeSelect = (name, options, selectedVal) => {
+                    return `<select name="${name}" required style="width: 100%; padding: 6px; margin-top: 2px; margin-bottom: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">` +
+                        options.replace(`value="${selectedVal}"`, `value="${selectedVal}" selected`) +
+                        `</select>`;
+                };
+
                 serversHtml += `
                     <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na tym serwerze</p>
                     
@@ -193,11 +208,11 @@ app.get('/dashboard', async (req, res) => {
                     <form method="POST" action="/configure-verify" style="margin-bottom: 15px; border-bottom: 1px solid #383a40; padding-bottom: 10px;">
                         <input type="hidden" name="guildId" value="${g.id}">
                         <strong style="color: #5865F2; font-size: 13px;">Weryfikacja:</strong>
-                        <label style="font-size: 11px; color: #dbdee1;">ID kanału weryfikacji:</label>
-                        <input type="text" name="channelId" value="${savedConfig.verifyChannel || ''}" placeholder="np. 123456789..." required style="margin-bottom: 5px;">
+                        <label style="font-size: 11px; color: #dbdee1;">Kanał weryfikacji:</label>
+                        ${makeSelect('channelId', channelOptions, savedConfig.verifyChannel)}
                         
-                        <label style="font-size: 11px; color: #dbdee1;">ID roli po weryfikacji:</label>
-                        <input type="text" name="roleId" value="${savedConfig.verifyRole || ''}" placeholder="np. 987654321..." required style="margin-bottom: 8px;">
+                        <label style="font-size: 11px; color: #dbdee1;">Rola po weryfikacji:</label>
+                        ${makeSelect('roleId', roleOptions, savedConfig.verifyRole)}
                         
                         <button type="submit" style="padding: 6px; font-size: 12px;">Wyślij panel weryfikacji</button>
                     </form>
@@ -206,11 +221,11 @@ app.get('/dashboard', async (req, res) => {
                     <form method="POST" action="/configure-ticket">
                         <input type="hidden" name="guildId" value="${g.id}">
                         <strong style="color: #5865F2; font-size: 13px;">Tickety (Zgłoszenia):</strong>
-                        <label style="font-size: 11px; color: #dbdee1;">ID kanału ticketów:</label>
-                        <input type="text" name="ticketChannelId" value="${savedConfig.ticketChannel || ''}" placeholder="np. 123456789..." required style="margin-bottom: 5px;">
+                        <label style="font-size: 11px; color: #dbdee1;">Kanał ticketów:</label>
+                        ${makeSelect('ticketChannelId', channelOptions, savedConfig.ticketChannel)}
                         
                         <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości panelu:</label>
-                        <input type="text" name="ticketMessage" value="${savedConfig.ticketMessage || 'Kliknij poniższy przycisk, aby otworzyć ticket.'}" required style="margin-bottom: 8px;">
+                        <input type="text" name="ticketMessage" value="${savedConfig.ticketMessage || 'Kliknij poniższy przycisk, aby otworzyć ticket.'}" required style="width: 100%; padding: 6px; margin-top: 2px; margin-bottom: 8px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; box-sizing: border-box; font-size: 12px;">
                         
                         <button type="submit" style="padding: 6px; font-size: 12px; background: #23a55a;">Wyślij panel ticketów</button>
                     </form>
@@ -242,7 +257,6 @@ app.get('/dashboard', async (req, res) => {
                     h1 { color: #5865F2; text-align: center; font-size: 22px; }
                     h3 { font-size: 15px; margin-top: 0; color: #b5bac1; border-bottom: 1px solid #4e5058; padding-bottom: 8px; }
                     label { display: block; margin-top: 4px; color: #dbdee1; font-size: 12px; }
-                    input { width: 100%; padding: 6px; margin-top: 2px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; box-sizing: border-box; font-size: 12px; }
                     button { width: 100%; background: #5865F2; color: #fff; padding: 8px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
                     button:hover { background: #4752c4; }
                     .logout { display: block; text-align: center; margin-top: 20px; color: #f23f43; text-decoration: none; font-weight: bold; }
@@ -282,7 +296,6 @@ app.get('/dashboard', async (req, res) => {
     `);
 });
 
-// Zapis i wysyłanie panelu weryfikacji przez www
 app.post('/configure-verify', async (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
     const { guildId, channelId, roleId } = req.body;
@@ -291,7 +304,7 @@ app.post('/configure-verify', async (req, res) => {
     if (!guild) return res.send('Nie znaleziono bota na tym serwerze. <a href="/dashboard">Wróć</a>');
 
     const channel = guild.channels.cache.get(channelId);
-    if (!channel) return res.send('Nie znaleziono kanału o podanym ID. <a href="/dashboard">Wróć</a>');
+    if (!channel) return res.send('Nie znaleziono wybranego kanału. <a href="/dashboard">Wróć</a>');
 
     try {
         await saveServerConfig(guildId, { verifyChannel: channelId, verifyRole: roleId });
@@ -315,7 +328,6 @@ app.post('/configure-verify', async (req, res) => {
     }
 });
 
-// Zapis i wysyłanie panelu ticketów przez www
 app.post('/configure-ticket', async (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
     const { guildId, ticketChannelId, ticketMessage } = req.body;
@@ -324,7 +336,7 @@ app.post('/configure-ticket', async (req, res) => {
     if (!guild) return res.send('Nie znaleziono bota na tym serwerze. <a href="/dashboard">Wróć</a>');
 
     const channel = guild.channels.cache.get(ticketChannelId);
-    if (!channel) return res.send('Nie znaleziono kanału ticketów o podanym ID. <a href="/dashboard">Wróć</a>');
+    if (!channel) return res.send('Nie znaleziono wybranego kanału ticketów. <a href="/dashboard">Wróć</a>');
 
     try {
         await saveServerConfig(guildId, { ticketChannel: ticketChannelId, ticketMessage });
@@ -366,12 +378,12 @@ const commands = [
     new SlashCommandBuilder()
         .setName('weryfikacja')
         .setDescription('Wysyła panel weryfikacyjny')
-        .addChannelOption(option => option.setName('kanal').setDescription('Kanał').setRequired(true))
+        .addChannelOption(option => option.setName('kanal').setDescription('Kanał').addChannelTypes(ChannelType.GuildText).setRequired(true))
         .addRoleOption(option => option.setName('rola').setDescription('Rola').setRequired(true)),
     new SlashCommandBuilder()
         .setName('ticket')
         .setDescription('Wysyła panel ticketów')
-        .addChannelOption(option => option.setName('kanal').setDescription('Kanał').setRequired(true))
+        .addChannelOption(option => option.setName('kanal').setDescription('Kanał').addChannelTypes(ChannelType.GuildText).setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
