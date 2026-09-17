@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, PermissionsBitField } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, PermissionsBitField, ChannelType } = require('discord.js');
 const express = require('express');
 const session = require('express-session');
 const fs = require('fs');
@@ -38,8 +38,7 @@ function saveDatabase(db) {
     }
 }
 
-// Globalny obiekt konfiguracyjny serwerów
-const serverConfigs = loadDatabase(); // { guildId: { channelId, roleId } }
+const serverConfigs = loadDatabase(); 
 const loginHistory = [];
 let clientInstance = null;
 
@@ -51,10 +50,9 @@ app.use(session({
     secret: CONFIG.SESSION_SECRET,
     resave: true,
     saveUninitialized: true,
-    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 } // Zapamiętywanie sesji na 7 dni
+    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
 }));
 
-// STRONA LOGOWANIA (PRZEZ DISCORDA)
 app.get('/', (req, res) => {
     if (req.session.loggedIn) {
         return res.redirect('/dashboard');
@@ -86,7 +84,6 @@ app.get('/', (req, res) => {
     `);
 });
 
-// CALLBACK OAUTH2 Z DISCORDA
 app.get('/auth/discord/callback', async (req, res) => {
     const code = req.query.code;
     if (!code) return res.redirect('/');
@@ -135,13 +132,11 @@ app.get('/auth/discord/callback', async (req, res) => {
     }
 });
 
-// Wylogowanie
 app.get('/logout', (req, res) => {
     req.session.destroy();
     res.redirect('/');
 });
 
-// PANEL STEROWANIA
 app.get('/dashboard', (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
 
@@ -179,7 +174,7 @@ app.get('/dashboard', (req, res) => {
                         <label style="font-size: 12px; color: #dbdee1;">ID roli po weryfikacji:</label>
                         <input type="text" name="roleId" value="${savedConfig.roleId || ''}" placeholder="np. 987654321..." required style="margin-bottom: 10px;">
                         
-                        <button type="submit" style="margin-top: 0; padding: 8px; font-size: 13px;">Zapisz i wyślij panel</button>
+                        <button type="submit" style="margin-top: 0; padding: 8px; font-size: 13px;">Zapisz i wyślij panel weryfikacji</button>
                     </form>
                 `;
             } else {
@@ -249,7 +244,6 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-// Zapis konfiguracji i wysyłanie panelu
 app.post('/configure', async (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
     const { guildId, channelId, roleId } = req.body;
@@ -261,8 +255,9 @@ app.post('/configure', async (req, res) => {
     if (!channel) return res.send('Nie znaleziono kanału o podanym ID na tym serwerze. <a href="/dashboard">Wróć</a>');
 
     try {
-        // Zapis do pamięci oraz do pliku trwałego (database.json)
-        serverConfigs[guildId] = { channelId, roleId };
+        if (!serverConfigs[guildId]) serverConfigs[guildId] = {};
+        serverConfigs[guildId].channelId = channelId;
+        serverConfigs[guildId].roleId = roleId;
         saveDatabase(serverConfigs);
 
         const row = new ActionRowBuilder().addComponents(
@@ -298,7 +293,7 @@ const client = new Client({
 
 clientInstance = client;
 
-// Rejestracja komend Slash (np. /weryfikacja)
+// Rejestracja komend Slash (/weryfikacja oraz /ticket)
 const commands = [
     new SlashCommandBuilder()
         .setName('weryfikacja')
@@ -310,16 +305,22 @@ const commands = [
         .addRoleOption(option =>
             option.setName('rola')
                 .setDescription('Rola nadawana po udanej weryfikacji')
+                .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('ticket')
+        .setDescription('Wysyła panel tworzenia zgłoszeń (ticketów)')
+        .addChannelOption(option =>
+            option.setName('kanal')
+                .setDescription('Kanał, na którym ma pojawić się panel ticketów')
                 .setRequired(true))
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
     console.log(`Zalogowano jako ${client.user.tag}!`);
 
-    // Rejestracja globalna komend slash
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
-        console.log('Rozpoczęto odświeżanie komend slash (/).');
+        console.log('Rozpoczęto rejestrację komend slash.');
         await rest.put(
             Routes.applicationCommands(CONFIG.CLIENT_ID),
             { body: commands },
@@ -330,7 +331,6 @@ client.once('ready', async () => {
     }
 });
 
-// Automatyczne nadawanie roli "Niezweryfikowany" przy wejściu
 client.on('guildMemberAdd', async member => {
     try {
         let unverifiedRole = member.guild.roles.cache.find(r => r.name.toLowerCase() === 'niezweryfikowany');
@@ -343,9 +343,8 @@ client.on('guildMemberAdd', async member => {
     }
 });
 
-// Obsługa interakcji (przyciski oraz komendy slash)
 client.on('interactionCreate', async interaction => {
-    // 1. Obsługa Komendy Slash /weryfikacja
+    // 1. Obsługa Komend Slash
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'weryfikacja') {
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
@@ -356,8 +355,9 @@ client.on('interactionCreate', async interaction => {
             const role = interaction.options.getRole('rola');
             const guildId = interaction.guild.id;
 
-            // Zapisz konfigurację do bazy danych
-            serverConfigs[guildId] = { channelId: channel.id, roleId: role.id };
+            if (!serverConfigs[guildId]) serverConfigs[guildId] = {};
+            serverConfigs[guildId].channelId = channel.id;
+            serverConfigs[guildId].roleId = role.id;
             saveDatabase(serverConfigs);
 
             const row = new ActionRowBuilder().addComponents(
@@ -372,21 +372,47 @@ client.on('interactionCreate', async interaction => {
                     content: '**Weryfikacja serwera**\nKliknij poniższy przycisk, aby odblokować dostęp do całego serwera:',
                     components: [row]
                 });
-                await interaction.reply({ content: `Pomyślnie wysłano panel weryfikacyjny na kanał ${channel} z rolą ${role}!`, ephemeral: true });
+                await interaction.reply({ content: `Pomyślnie wysłano panel weryfikacyjny na kanał ${channel}!`, ephemeral: true });
             } catch (err) {
                 console.error(err);
-                await interaction.reply({ content: 'Wystąpił błąd podczas wysyłania panelu. Sprawdź uprawnienia bota.', ephemeral: true });
+                await interaction.reply({ content: 'Wystąpił błąd podczas wysyłania panelu.', ephemeral: true });
+            }
+        }
+
+        if (interaction.commandName === 'ticket') {
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return interaction.reply({ content: 'Musisz być administratorem, aby użyć tej komendy!', ephemeral: true });
+            }
+
+            const channel = interaction.options.getChannel('kanal');
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('create_ticket')
+                    .setLabel('Stwórz ticket 🎫')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            try {
+                await channel.send({
+                    content: '**System Zgłoszeń (Tickety)**\nKliknij przycisk poniżej, aby otworzyć prywatny kanał zgłoszenia z administracją:',
+                    components: [row]
+                });
+                await interaction.reply({ content: `Pomyślnie wysłano panel ticketów na kanał ${channel}!`, ephemeral: true });
+            } catch (err) {
+                console.error(err);
+                await interaction.reply({ content: 'Wystąpił błąd podczas wysyłania panelu ticketów.', ephemeral: true });
             }
         }
     }
 
-    // 2. Obsługa przycisku weryfikacji
+    // 2. Obsługa Przycisków (Weryfikacja oraz Tickety)
     if (interaction.isButton()) {
+        // Przycisk weryfikacji
         if (interaction.customId === 'verify_button') {
             const guildId = interaction.guild.id;
-            const config = serverConfigs[guildId];
-            
-            let verifiedRoleId = config ? config.roleId : null;
+            const config = serverConfigs[guildId] || {};
+            let verifiedRoleId = config.roleId;
             
             if (!verifiedRoleId) {
                 const fallbackRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'zweryfikowany');
@@ -413,6 +439,69 @@ client.on('interactionCreate', async interaction => {
             } catch (error) {
                 console.error(error);
                 await interaction.reply({ content: 'Wystąpił błąd. Sprawdź pozycję roli bota.', ephemeral: true });
+            }
+        }
+
+        // Przycisk tworzenia ticketu
+        if (interaction.customId === 'create_ticket') {
+            const guild = interaction.guild;
+            const user = interaction.user;
+
+            try {
+                await interaction.deferReply({ ephemeral: true });
+
+                // Tworzenie prywatnego kanału dla użytkownika
+                const ticketChannel = await guild.channels.create({
+                    name: `ticket-${user.username}`,
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        {
+                            id: guild.id, // Ukryj dla wszystkich
+                            deny: [PermissionsBitField.Flags.ViewChannel],
+                        },
+                        {
+                            id: user.id, // Pokaż dla użytkownika, który kliknął
+                            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
+                        },
+                        {
+                            id: client.user.id, // Pokaż dla bota
+                            allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels],
+                        }
+                    ],
+                });
+
+                const closeRow = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('close_ticket')
+                        .setLabel('Zamknij ticket 🔒')
+                        .setStyle(ButtonStyle.Danger)
+                );
+
+                await ticketChannel.send({
+                    content: `Witaj ${user}! Administracja wkrótce Ci pomoże.\nAby zamknąć to zgłoszenie, kliknij przycisk poniżej:`,
+                    components: [closeRow]
+                });
+
+                await interaction.editReply({ content: `Utworzono Twój ticket: ${ticketChannel}!` });
+            } catch (err) {
+                console.error(err);
+                if (!interaction.deferred && !interaction.replied) {
+                    await interaction.reply({ content: 'Wystąpił błąd podczas tworzenia kanału ticketu.', ephemeral: true });
+                } else {
+                    await interaction.editReply({ content: 'Wystąpił błąd podczas tworzenia kanału ticketu.' });
+                }
+            }
+        }
+
+        // Przycisk zamykania ticketu
+        if (interaction.customId === 'close_ticket') {
+            try {
+                await interaction.reply({ content: 'Zamykanie ticketu za 3 sekundy...' });
+                setTimeout(async () => {
+                    await interaction.channel.delete().catch(() => {});
+                }, 3000);
+            } catch (err) {
+                console.error(err);
             }
         }
     }
