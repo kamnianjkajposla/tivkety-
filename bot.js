@@ -2,102 +2,110 @@ const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle,
 const express = require('express');
 const session = require('express-session');
 
+// ==========================================
+// ⚙️ KONFIGURACJA OAUTH2 (DISCORD LOGIN)
+// ==========================================
+const CONFIG = {
+    CLIENT_ID: process.env.DISCORD_CLIENT_ID || 'TUTAJ_CLIENT_ID',
+    CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'TUTAJ_CLIENT_SECRET',
+    // Dokładny adres przekierowania zgodny z Discord Developer Portal
+    REDIRECT_URI: process.env.DISCORD_REDIRECT_URI || 'https://tivkety.onrender.com/auth/discord/callback',
+    PORT: process.env.PORT || 10000,
+    SESSION_SECRET: 'tajnykluczsosession123'
+};
+
 // --- SERWER HTTP I PANEL WWW ---
 const app = express();
-const PORT = process.env.PORT || 10000;
 
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: 'tajnykluczsosession123',
+    secret: CONFIG.SESSION_SECRET,
     resave: false,
     saveUninitialized: false
 }));
 
-// Baza danych kont z domyślnym kontem na start
-const usersDB = new Map();
-usersDB.set('sigam11k@wp.pl', 'kicimici');
-
-// Lista przechowująca historię logowań (kto i kiedy się logował)
+let clientInstance = null;
+const verifiedRoles = new Map();
 const loginHistory = [];
 
-let clientInstance = null;
-
-// Używamy obiektu zamiast zwykłej mapy, żeby łatwo można było zapisać (lub ewentualnie rozbudować)
-// verifiedRoles przechowuje przypisane role dla serwerów
-const verifiedRoles = new Map();
-
-// STRONA LOGOWANIA (CZYSTA, BEZ STATYSTYK)
+// STRONA LOGOWANIA (PRZEZ DISCORDA)
 app.get('/', (req, res) => {
     if (req.session.loggedIn) {
         return res.redirect('/dashboard');
     }
+
+    const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
 
     res.send(`
         <html>
             <head>
                 <title>Logowanie - Tivkety</title>
                 <style>
-                    body { font-family: Arial, sans-serif; background-color: #313338; color: #fff; text-align: center; padding-top: 50px; }
-                    .card { background-color: #2b2d31; display: inline-block; padding: 30px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 350px; text-align: left; }
-                    h1 { color: #5865F2; text-align: center; font-size: 22px; }
-                    label { display: block; margin-top: 15px; color: #dbdee1; }
-                    input { width: 100%; padding: 10px; margin-top: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; box-sizing: border-box; }
-                    button { width: 100%; background: #5865F2; color: #fff; padding: 12px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; font-weight: bold; }
-                    button:hover { background: #4752c4; }
+                    body { font-family: Arial, sans-serif; background-color: #313338; color: #fff; text-align: center; padding-top: 100px; }
+                    .card { background-color: #2b2d31; display: inline-block; padding: 40px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 350px; }
+                    h1 { color: #5865F2; font-size: 24px; margin-bottom: 20px; }
+                    p { color: #949ba4; font-size: 14px; margin-bottom: 30px; }
+                    .btn-discord { background: #5865F2; color: #fff; padding: 14px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; width: 100%; box-sizing: border-box; }
+                    .btn-discord:hover { background: #4752c4; }
                 </style>
             </head>
             <body>
                 <div class="card">
-                    <h1>Logowanie do Panelu</h1>
-                    <form method="POST" action="/login">
-                        <label>Email:</label>
-                        <input type="text" name="email" required>
-                        
-                        <label>Hasło:</label>
-                        <input type="password" name="password" required>
-                        
-                        <button type="submit">Zaloguj się</button>
-                    </form>
+                    <h1>Panel Tivkety</h1>
+                    <p>Zarządzaj swoim botem i systemem weryfikacji po zalogowaniu kontem Discord.</p>
+                    <a href="${discordAuthUrl}" class="btn-discord">Zaloguj przez Discord</a>
                 </div>
             </body>
         </html>
     `);
 });
 
-// Obsługa logowania + zapis do historii logowań
-app.post('/login', (req, res) => {
-    const { email, password } = req.body;
+// CALLBACK OAUTH2 Z DISCORDA
+app.get('/auth/discord/callback', async (req, res) => {
+    const code = req.query.code;
+    if (!code) return res.redirect('/');
 
-    if (usersDB.has(email) && usersDB.get(email) === password) {
+    try {
+        const tokenParam = new URLSearchParams({
+            client_id: CONFIG.CLIENT_ID,
+            client_secret: CONFIG.CLIENT_SECRET,
+            grant_type: 'authorization_code',
+            code: code,
+            redirect_uri: CONFIG.REDIRECT_URI,
+        });
+
+        const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+            method: 'POST',
+            body: tokenParam,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+        const tokenData = await tokenRes.json();
+
+        if (!tokenData.access_token) return res.redirect('/');
+
+        const userRes = await fetch('https://discord.com/api/users/@me', {
+            headers: { authorization: `Bearer ${tokenData.access_token}` }
+        });
+        const userData = await userRes.json();
+
+        const guildsRes = await fetch('https://discord.com/api/users/@me/guilds', {
+            headers: { authorization: `Bearer ${tokenData.access_token}` }
+        });
+        const guildsData = await guildsRes.json();
+
         req.session.loggedIn = true;
-        req.session.email = email;
+        req.session.user = userData;
+        req.session.userGuilds = guildsData;
 
-        // Dodajemy wpis do historii logowań z aktualną datą
         loginHistory.unshift({
-            email: email,
+            name: `${userData.username} (#${userData.id})`,
             time: new Date().toLocaleString('pl-PL')
         });
 
         res.redirect('/dashboard');
-    } else {
-        res.send(`<script>alert('Błędny email lub hasło!'); window.location='/';</script>`);
-    }
-});
-
-// Dodawanie nowego konta przez administratora
-app.post('/add-user', (req, res) => {
-    if (!req.session.loggedIn) return res.redirect('/');
-    const { newEmail, newPassword } = req.body;
-
-    if (!newEmail || !newPassword) {
-        return res.send(`<script>alert('Wypełnij oba pola!'); window.location='/dashboard';</script>`);
-    }
-
-    if (usersDB.has(newEmail)) {
-        res.send(`<script>alert('Taki użytkownik już istnieje!'); window.location='/dashboard';</script>`);
-    } else {
-        usersDB.set(newEmail, newPassword);
-        res.send(`<script>alert('Nowe konto zostało pomyślnie utworzone!'); window.location='/dashboard';</script>`);
+    } catch (err) {
+        console.error('Błąd autoryzacji Discord:', err);
+        res.redirect('/');
     }
 });
 
@@ -107,7 +115,7 @@ app.get('/logout', (req, res) => {
     res.redirect('/');
 });
 
-// PANEL STEROWANIA (ZE STATYSTYKAMI I HISTORIĄ LOGOWAŃ)
+// PANEL STEROWANIA (TYLKO SERWERY, NA KTÓRYCH UŻYTKOWNIK JEST ADMINEM)
 app.get('/dashboard', (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
 
@@ -115,12 +123,21 @@ app.get('/dashboard', (req, res) => {
         return res.send('<h1>Bot się uruchamia... Odśwież stronę za chwilę.</h1>');
     }
 
-    const guilds = clientInstance.guilds.cache.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    const user = req.session.user;
+    const userGuilds = req.session.userGuilds || [];
+
+    // Filtrujemy serwery: użytkownik musi być właścicielem lub mieć uprawnienie Administrator oraz bot musi być na tym serwerze
+    const manageableGuilds = userGuilds.filter(g => {
+        const hasAdmin = (BigInt(g.permissions) & BigInt(0x8)) === BigInt(0x8) || g.owner;
+        const botIsInGuild = clientInstance.guilds.cache.has(g.id);
+        return hasAdmin && botIsInGuild;
+    });
+
+    const guildsOptions = manageableGuilds.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
+    
     const totalServers = clientInstance.guilds.cache.size;
     const totalUsers = clientInstance.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0);
-
-    // Generujemy listę historii logowań w HTML
-    const historyHtml = loginHistory.map(item => `<li style="margin-bottom: 5px;"><b>${item.email}</b> <span style="color: #949ba4; font-size: 11px;">(${item.time})</span></li>`).join('');
+    const historyHtml = loginHistory.map(item => `<li style="margin-bottom: 5px;"><b>${item.name}</b> <span style="color: #949ba4; font-size: 11px;">(${item.time})</span></li>`).join('');
 
     res.send(`
         <html>
@@ -143,15 +160,16 @@ app.get('/dashboard', (req, res) => {
             </head>
             <body>
                 <div class="container">
-                    <!-- Kafel 1: Konfiguracja i Tworzenie Kont -->
+                    <!-- Kafel 1: Konfiguracja weryfikacji -->
                     <div class="card">
                         <h1>Panel Tivkety</h1>
-                        <p style="font-size: 13px; color: #949ba4; text-align: center;">Zalogowany jako: <b>${req.session.email}</b></p>
+                        <p style="font-size: 13px; color: #949ba4; text-align: center;">Zalogowany: <b>${user.username}</b></p>
                         
                         <h3>Konfiguracja weryfikacji</h3>
+                        ${guildsOptions ? `
                         <form method="POST" action="/configure">
-                            <label>Wybierz serwer:</label>
-                            <select name="guildId">${guilds}</select>
+                            <label>Wybierz swój serwer:</label>
+                            <select name="guildId">${guildsOptions}</select>
                             
                             <label>ID kanału weryfikacji:</label>
                             <input type="text" name="channelId" required>
@@ -161,17 +179,7 @@ app.get('/dashboard', (req, res) => {
                             
                             <button type="submit">Wyślij panel weryfikacji</button>
                         </form>
-
-                        <h3 style="margin-top: 25px;">Dodaj nowe konto</h3>
-                        <form method="POST" action="/add-user">
-                            <label>Nowy Email:</label>
-                            <input type="text" name="newEmail" required>
-                            
-                            <label>Nowe Hasło:</label>
-                            <input type="password" name="newPassword" required>
-                            
-                            <button type="submit" style="background: #248046;">Utwórz konto</button>
-                        </form>
+                        ` : '<p style="color: #f23f43; font-size: 13px; text-align: center;">Nie masz uprawnień administratora na żadnym serwerze, na którym jest ten bot!</p>'}
 
                         <a href="/logout" class="logout">Wyloguj się</a>
                     </div>
@@ -228,13 +236,13 @@ app.post('/configure', async (req, res) => {
     }
 });
 
-// Statystyki w formacie tekstowym dla UptimeRobot
+// Statystyki dla UptimeRobot
 app.get('/stats', (req, res) => {
     if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia...');
     res.send(`Serwery: ${clientInstance.guilds.cache.size}, Użytkownicy: ${clientInstance.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0)}`);
 });
 
-app.listen(PORT, () => console.log(`Serwer HTTP uruchomiony na porcie ${PORT}`));
+app.listen(CONFIG.PORT, () => console.log(`Serwer HTTP uruchomiony na porcie ${CONFIG.PORT}`));
 
 // --- BOT DISCORDA ---
 const client = new Client({
@@ -269,12 +277,9 @@ client.on('interactionCreate', async interaction => {
 
     if (interaction.customId === 'verify_button') {
         const guildId = interaction.guild.id;
-        
-        // Zabezpieczenie: Jeśli serwer nie ma zapisanej roli w pamięci po restarcie, sprawdzamy czy rola "Zweryfikowany" istnieje lub informujemy administratora
         let verifiedRoleId = verifiedRoles.get(guildId);
         
         if (!verifiedRoleId) {
-            // Automatyczne zabezpieczenie zapasowe: Szuka roli "Zweryfikowany" na serwerze, żeby przycisk działał nawet po restarcie bota
             const fallbackRole = interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'zweryfikowany');
             if (fallbackRole) {
                 verifiedRoleId = fallbackRole.id;
