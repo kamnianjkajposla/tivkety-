@@ -114,7 +114,7 @@ app.get('/logout', (req, res) => {
     res.redirect('/');
 });
 
-// PANEL STEROWANIA (TYLKO SERWERY, NA KTÓRYCH UŻYTKOWNIK JEST ADMINEM)
+// PANEL STEROWANIA (LISTA SERWERÓW, DODawanie BOTA ORAZ KONFIGURACJA)
 app.get('/dashboard', (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
 
@@ -125,15 +125,50 @@ app.get('/dashboard', (req, res) => {
     const user = req.session.user;
     const userGuilds = req.session.userGuilds || [];
 
-    // Filtrujemy serwery: użytkownik musi być właścicielem lub mieć uprawnienie Administrator oraz bot musi być na tym serwerze
-    const manageableGuilds = userGuilds.filter(g => {
-        const hasAdmin = (BigInt(g.permissions) & BigInt(0x8)) === BigInt(0x8) || g.owner;
-        const botIsInGuild = clientInstance.guilds.cache.has(g.id);
-        return hasAdmin && botIsInGuild;
+    // Filtrujemy serwery: użytkownik musi być właścicielem lub mieć uprawnienie Administrator
+    const adminGuilds = userGuilds.filter(g => {
+        return (BigInt(g.permissions) & BigInt(0x8)) === BigInt(0x8) || g.owner;
     });
 
-    const guildsOptions = manageableGuilds.map(g => `<option value="${g.id}">${g.name}</option>`).join('');
-    
+    let serversHtml = '';
+
+    if (adminGuilds.length === 0) {
+        serversHtml = '<p style="color: #f23f43; font-size: 13px; text-align: center;">Nie masz uprawnień administratora na żadnym serwerze!</p>';
+    } else {
+        adminGuilds.forEach(g => {
+            const botIsInGuild = clientInstance.guilds.cache.has(g.id);
+            
+            serversHtml += `<div style="background: #1e1f22; padding: 15px; border-radius: 6px; margin-bottom: 15px;">`;
+            serversHtml += `<h4 style="margin: 0 0 10px 0; color: #fff; font-size: 15px;">🌐 ${g.name}</h4>`;
+
+            if (botIsInGuild) {
+                // Bot jest na serwerze - pokazujemy formularz konfiguracji weryfikacji
+                serversHtml += `
+                    <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na tym serwerze</p>
+                    <form method="POST" action="/configure">
+                        <input type="hidden" name="guildId" value="${g.id}">
+                        <label style="font-size: 12px; color: #dbdee1;">ID kanału weryfikacji:</label>
+                        <input type="text" name="channelId" placeholder="np. 123456789..." required style="margin-bottom: 8px;">
+                        
+                        <label style="font-size: 12px; color: #dbdee1;">ID roli po weryfikacji:</label>
+                        <input type="text" name="roleId" placeholder="np. 987654321..." required style="margin-bottom: 10px;">
+                        
+                        <button type="submit" style="margin-top: 0; padding: 8px; font-size: 13px;">Wyślij panel weryfikacji</button>
+                    </form>
+                `;
+            } else {
+                // Bota nie ma - pokazujemy przycisk dodawania
+                const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&permissions=8&scope=bot&guild_id=${g.id}&disable_guild_select=true`;
+                serversHtml += `
+                    <p style="color: #f0b232; font-size: 12px; margin: 0 0 10px 0;">⚠ Bota nie ma na tym serwerze</p>
+                    <a href="${inviteUrl}" target="_blank" style="background: #23a55a; color: #fff; padding: 8px 12px; border-radius: 4px; text-decoration: none; display: block; text-align: center; font-size: 13px; font-weight: bold;">➕ Dodaj bota na serwer</a>
+                `;
+            }
+
+            serversHtml += `</div>`;
+        });
+    }
+
     const totalServers = clientInstance.guilds.cache.size;
     const totalUsers = clientInstance.guilds.cache.reduce((acc, g) => acc + g.memberCount, 0);
     const historyHtml = loginHistory.map(item => `<li style="margin-bottom: 5px;"><b>${item.name}</b> <span style="color: #949ba4; font-size: 11px;">(${item.time})</span></li>`).join('');
@@ -144,41 +179,31 @@ app.get('/dashboard', (req, res) => {
                 <title>Panel Bota Tivkety</title>
                 <style>
                     body { font-family: Arial, sans-serif; background-color: #313338; color: #fff; text-align: center; padding: 30px; }
-                    .container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; }
-                    .card { background-color: #2b2d31; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 400px; text-align: left; }
+                    .container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+                    .card { background-color: #2b2d31; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 450px; text-align: left; }
                     h1 { color: #5865F2; text-align: center; font-size: 22px; }
                     h3 { font-size: 16px; margin-top: 0; color: #b5bac1; border-bottom: 1px solid #4e5058; padding-bottom: 8px; }
-                    label { display: block; margin-top: 12px; color: #dbdee1; font-size: 14px; }
-                    select, input { width: 100%; padding: 8px; margin-top: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; box-sizing: border-box; }
-                    button { width: 100%; background: #5865F2; color: #fff; padding: 10px; border: none; border-radius: 4px; cursor: pointer; margin-top: 15px; font-weight: bold; }
+                    label { display: block; margin-top: 6px; color: #dbdee1; font-size: 13px; }
+                    input { width: 100%; padding: 7px; margin-top: 3px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; box-sizing: border-box; }
+                    button { width: 100%; background: #5865F2; color: #fff; padding: 9px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
                     button:hover { background: #4752c4; }
                     .logout { display: block; text-align: center; margin-top: 20px; color: #f23f43; text-decoration: none; font-weight: bold; }
                     .stat-box { background: #1e1f22; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 14px; }
                     ul { padding-left: 20px; max-height: 150px; overflow-y: auto; font-size: 13px; background: #1e1f22; padding: 10px; border-radius: 5px; }
+                    .servers-list { max-height: 500px; overflow-y: auto; padding-right: 5px; }
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <!-- Kafel 1: Konfiguracja weryfikacji -->
+                    <!-- Kafel 1: Lista serwerów i zarządzanie -->
                     <div class="card">
                         <h1>Panel Tivkety</h1>
-                        <p style="font-size: 13px; color: #949ba4; text-align: center;">Zalogowany: <b>${user.username}</b></p>
+                        <p style="font-size: 13px; color: #949ba4; text-align: center; margin-bottom: 20px;">Zalogowany: <b>${user.username}</b></p>
                         
-                        <h3>Konfiguracja weryfikacji</h3>
-                        ${guildsOptions ? `
-                        <form method="POST" action="/configure">
-                            <label>Wybierz swój serwer:</label>
-                            <select name="guildId">${guildsOptions}</select>
-                            
-                            <label>ID kanału weryfikacji:</label>
-                            <input type="text" name="channelId" required>
-                            
-                            <label>ID roli po weryfikacji:</label>
-                            <input type="text" name="roleId" required>
-                            
-                            <button type="submit">Wyślij panel weryfikacji</button>
-                        </form>
-                        ` : '<p style="color: #f23f43; font-size: 13px; text-align: center;">Nie masz uprawnień administratora na żadnym serwerze, na którym jest ten bot!</p>'}
+                        <h3>Twoje serwery administracyjne</h3>
+                        <div class="servers-list">
+                            ${serversHtml}
+                        </div>
 
                         <a href="/logout" class="logout">Wyloguj się</a>
                     </div>
@@ -202,16 +227,16 @@ app.get('/dashboard', (req, res) => {
     `);
 });
 
-// Zapis konfiguracji
+// Zapis konfiguracji weryfikacji
 app.post('/configure', async (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
     const { guildId, channelId, roleId } = req.body;
 
     const guild = clientInstance.guilds.cache.get(guildId);
-    if (!guild) return res.send('Nie znaleziono serwera. <a href="/dashboard">Wróć</a>');
+    if (!guild) return res.send('Nie znaleziono bota na tym serwerze. <a href="/dashboard">Wróć</a>');
 
     const channel = guild.channels.cache.get(channelId);
-    if (!channel) return res.send('Nie znaleziono kanału o podanym ID. <a href="/dashboard">Wróć</a>');
+    if (!channel) return res.send('Nie znaleziono kanału o podanym ID na tym serwerze. <a href="/dashboard">Wróć</a>');
 
     try {
         verifiedRoles.set(guildId, roleId);
@@ -231,7 +256,7 @@ app.post('/configure', async (req, res) => {
         res.send('<h2>Panel weryfikacyjny został pomyślnie wysłany na kanał!</h2><a href="/dashboard">Wróć do panelu</a>');
     } catch (err) {
         console.error(err);
-        res.send('Wystąpił błąd. Upewnij się, że bot ma uprawnienia administratora. <a href="/dashboard">Wróć</a>');
+        res.send('Wystąpił błąd. Upewnij się, że bot ma uprawnienia administratora na tym serwerze. <a href="/dashboard">Wróć</a>');
     }
 });
 
