@@ -204,11 +204,12 @@ app.get('/dashboard', async (req, res) => {
                 const savedSupportRoles = savedConfig.supportRoles || [];
                 roles.forEach(r => {
                     const isChecked = savedSupportRoles.includes(r.id) ? 'checked' : '';
-                    roleCheckboxes += `<label style="display:inline-block; margin-right: 10px; font-size:11px; color:#dbdee1;"><input type="checkbox" name="supportRoles" value="${r.id}" ${isChecked}> @${r.name}</label>`;
+                    roleCheckboxes += `<label style="display:inline-block; margin-right: 10px; font-size:11px; color:#dbdee1;"><input type="checkbox" name="supportRoles" value="${r.id}" ${isChecked} form="ticketForm_${g.id}"> @${r.name}</label>`;
                 });
 
-                const makeSelect = (name, options, selectedVal) => {
-                    return `<select name="${name}" required style="width: 100%; padding: 6px; margin-top: 2px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">` +
+                const makeSelect = (name, options, selectedVal, formId) => {
+                    let formAttr = formId ? `form="${formId}"` : '';
+                    return `<select name="${name}" ${formAttr} required style="width: 100%; padding: 6px; margin-top: 2px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">` +
                         options.replace(`value="${selectedVal}"`, `value="${selectedVal}" selected`) +
                         `</select>`;
                 };
@@ -226,9 +227,9 @@ app.get('/dashboard', async (req, res) => {
                                 <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
                             </div>
                             <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
-                            <input type="text" name="catName[]" value="${cat.name.replace(/"/g, '&quot;')}" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
+                            <input type="text" name="catName[]" value="${cat.name.replace(/"/g, '&quot;')}" required form="ticketForm_${g.id}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
                             <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
-                            <textarea name="catQuestion[]" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;">${cat.question}</textarea>
+                            <textarea name="catQuestion[]" required form="ticketForm_${g.id}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;">${cat.question}</textarea>
                         </div>
                     `;
                 });
@@ -237,13 +238,13 @@ app.get('/dashboard', async (req, res) => {
                     <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na serwerze</p>
                     
                     <!-- WERYFIKACJA -->
-                    <form method="POST" action="/configure-verify" style="margin-bottom: 15px; border-bottom: 1px solid #383a40; padding-bottom: 12px;">
+                    <form method="POST" action="/configure-verify" id="verifyForm_${g.id}" style="margin-bottom: 15px; border-bottom: 1px solid #383a40; padding-bottom: 12px;">
                         <input type="hidden" name="guildId" value="${g.id}">
                         <strong style="color: #5865F2; font-size: 13px;">Weryfikacja:</strong>
                         <label style="font-size: 11px; color: #dbdee1;">Kanał:</label>
-                        ${makeSelect('channelId', channelOptions, savedConfig.verifyChannel)}
+                        ${makeSelect('channelId', channelOptions, savedConfig.verifyChannel, `verifyForm_${g.id}`)}
                         <label style="font-size: 11px; color: #dbdee1;">Rola po weryfikacji:</label>
-                        ${makeSelect('roleId', roleOptions, savedConfig.verifyRole)}
+                        ${makeSelect('roleId', roleOptions, savedConfig.verifyRole, `verifyForm_${g.id}`)}
                         <label style="font-size: 11px; color: #dbdee1;">Nagłówek / Tytuł:</label>
                         <input type="text" name="verifyTitle" value="${(savedConfig.verifyTitle || '**Weryfikacja serwera**').replace(/"/g, '&quot;')}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
                         <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
@@ -257,7 +258,7 @@ app.get('/dashboard', async (req, res) => {
                         <strong style="color: #5865F2; font-size: 13px;">Tickety i Uprawnienia:</strong>
                         
                         <label style="font-size: 11px; color: #dbdee1; margin-top: 5px;">Kanał panelu ticketów:</label>
-                        ${makeSelect('ticketChannelId', channelOptions, savedConfig.ticketChannel)}
+                        ${makeSelect('ticketChannelId', channelOptions, savedConfig.ticketChannel, `ticketForm_${g.id}`)}
                         
                         <label style="font-size: 11px; color: #dbdee1; margin-top: 5px;">Role obsługujące tickety:</label>
                         <div style="max-height: 90px; overflow-y: auto; background: #2b2d31; padding: 6px; border-radius: 4px; margin-bottom: 8px; border: 1px solid #4e5058;">
@@ -294,9 +295,9 @@ app.get('/dashboard', async (req, res) => {
                                     <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
                                 </div>
                                 <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
-                                <input type="text" name="catName[]" required placeholder="np. Skarga" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
+                                <input type="text" name="catName[]" required form="ticketForm_${g.id}" placeholder="np. Skarga" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
                                 <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
-                                <textarea name="catQuestion[]" required placeholder="Podaj szczegóły:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
+                                <textarea name="catQuestion[]" required form="ticketForm_${g.id}" placeholder="Podaj szczegóły:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
                             \`;
                             container.appendChild(div);
                         }
@@ -422,7 +423,6 @@ app.post('/configure-ticket', async (req, res) => {
     const channel = guild.channels.cache.get(ticketChannelId);
     if (!channel) return res.send('Nie znaleziono kanału ticketów. <a href="/dashboard">Wróć</a>');
 
-    // Poprawne odbieranie tablic z formularza (nawet jeśli przesłano tylko 1 element jako string)
     let names = req.body['catName[]'];
     let questions = req.body['catQuestion[]'];
 
