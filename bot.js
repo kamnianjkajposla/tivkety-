@@ -74,13 +74,20 @@ let clientInstance = null;
 // --- SERWER HTTP I PANEL WWW ---
 const app = express();
 
+// Konfiguracja dla Render (proxy) zapobiegająca błędom 502 przy sesjach
+app.set('trust proxy', 1);
+
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.json());
 app.use(session({
     secret: CONFIG.SESSION_SECRET,
-    resave: true,
-    saveUninitialized: true,
-    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
+    resave: false,
+    saveUninitialized: false,
+    proxy: true,
+    cookie: { 
+        secure: true,
+        maxAge: 7 * 24 * 60 * 60 * 1000 
+    }
 }));
 
 app.get('/', (req, res) => {
@@ -282,7 +289,6 @@ app.get('/dashboard', async (req, res) => {
                     <script>
                         function addCategory_${g.id}() {
                             const container = document.getElementById('categoriesContainer_${g.id}');
-                            const count = container.children.length + 1;
                             const div = document.createElement('div');
                             div.className = 'category-item';
                             div.style.cssText = 'background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;';
@@ -294,7 +300,7 @@ app.get('/dashboard', async (req, res) => {
                                 <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii:</label>
                                 <input type="text" name="catName[]" required placeholder="np. Skarga" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
                                 <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
-                                <textarea name="catQuestion[]" required placeholder="Podaj nick oskarżonego i dowody:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
+                                <textarea name="catQuestion[]" required placeholder="Podaj szczegóły:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
                             \`;
                             container.appendChild(div);
                         }
@@ -410,7 +416,6 @@ app.post('/configure-ticket', async (req, res) => {
     const channel = guild.channels.cache.get(ticketChannelId);
     if (!channel) return res.send('Nie znaleziono kanału ticketów. <a href="/dashboard">Wróć</a>');
 
-    // Odczytanie dynamicznych tablic kategorii i pytań z formularza
     let names = req.body['catName[]'] || [];
     let questions = req.body['catQuestion[]'] || [];
     if (!Array.isArray(names)) names = [names];
@@ -549,7 +554,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            // Uprawnienia: Administratorzy, właściciel, bot, oraz wszystkie wybrane role supportu
             const overwrites = [
                 { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
                 { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
