@@ -422,9 +422,14 @@ app.post('/configure-ticket', async (req, res) => {
     const channel = guild.channels.cache.get(ticketChannelId);
     if (!channel) return res.send('Nie znaleziono kanału ticketów. <a href="/dashboard">Wróć</a>');
 
-    let names = req.body['catName[]'] || [];
-    let questions = req.body['catQuestion[]'] || [];
+    // Poprawne odbieranie tablic z formularza (nawet jeśli przesłano tylko 1 element jako string)
+    let names = req.body['catName[]'];
+    let questions = req.body['catQuestion[]'];
+
+    if (!names) names = [];
     if (!Array.isArray(names)) names = [names];
+
+    if (!questions) questions = [];
     if (!Array.isArray(questions)) questions = [questions];
 
     const categories = [];
