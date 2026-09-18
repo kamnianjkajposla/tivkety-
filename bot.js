@@ -214,25 +214,9 @@ app.get('/dashboard', async (req, res) => {
                         `</select>`;
                 };
 
-                const categories = savedConfig.ticketCategories || [
+                const initialCategories = savedConfig.ticketCategories && savedConfig.ticketCategories.length > 0 ? savedConfig.ticketCategories : [
                     { name: 'Pomoc Techniczna', question: 'Opisz swój problem dokładnie:' }
                 ];
-
-                let categoriesHtml = '';
-                categories.forEach((cat, index) => {
-                    categoriesHtml += `
-                        <div class="category-item" style="background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                                <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Pytanie #${index + 1}</span>
-                                <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
-                            </div>
-                            <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
-                            <input type="text" name="catName[]" value="${cat.name.replace(/"/g, '&quot;')}" required form="ticketForm_${g.id}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
-                            <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
-                            <textarea name="catQuestion[]" required form="ticketForm_${g.id}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;">${cat.question}</textarea>
-                        </div>
-                    `;
-                });
 
                 serversHtml += `
                     <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na serwerze</p>
@@ -274,33 +258,61 @@ app.get('/dashboard', async (req, res) => {
                         <div style="border-top: 1px solid #383a40; padding-top: 8px; margin-bottom: 8px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                                 <strong style="font-size: 11px; color: #b5bac1;">Kategorie i pytania:</strong>
-                                <button type="button" onclick="addCategory_${g.id}()" style="background: #23a55a; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">+ Dodaj pytanie</button>
+                                <button type="button" onclick="window.addCategory_${g.id}()" style="background: #23a55a; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">+ Dodaj pytanie</button>
                             </div>
-                            <div id="categoriesContainer_${g.id}">
-                                ${categoriesHtml}
-                            </div>
+                            <div id="categoriesContainer_${g.id}"></div>
                         </div>
 
                         <button type="submit" style="padding: 6px; font-size: 12px; background: #23a55a; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Zapisz i zaktualizuj panel ticketów</button>
                     </form>
                     <script>
-                        function addCategory_${g.id}() {
-                            const container = document.getElementById('categoriesContainer_${g.id}');
-                            const div = document.createElement('div');
-                            div.className = 'category-item';
-                            div.style.cssText = 'background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;';
-                            div.innerHTML = \`
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                                    <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Nowe Pytanie</span>
-                                    <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
-                                </div>
-                                <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
-                                <input type="text" name="catName[]" required form="ticketForm_${g.id}" placeholder="np. Skarga" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
-                                <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
-                                <textarea name="catQuestion[]" required form="ticketForm_${g.id}" placeholder="Podaj szczegóły:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
-                            \`;
-                            container.appendChild(div);
-                        }
+                        (function() {
+                            let categories_${g.id} = ${JSON.stringify(initialCategories)};
+
+                            window.renderCategories_${g.id} = function() {
+                                const container = document.getElementById('categoriesContainer_${g.id}');
+                                if (!container) return;
+                                container.innerHTML = '';
+
+                                categories_${g.id}.forEach((cat, index) => {
+                                    const div = document.createElement('div');
+                                    div.className = 'category-item';
+                                    div.style.cssText = 'background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;';
+                                    div.innerHTML = \`
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                            <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Pytanie #\${index + 1}</span>
+                                            <button type="button" onclick="window.removeCategory_${g.id}(\${index})" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
+                                        </div>
+                                        <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
+                                        <input type="text" name="catName[]" value="\${cat.name.replace(/"/g, '&quot;')}" required form="ticketForm_${g.id}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;" oninput="window.updateCatData_${g.id}(\${index}, 'name', this.value)">
+                                        <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
+                                        <textarea name="catQuestion[]" required form="ticketForm_${g.id}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;" oninput="window.updateCatData_${g.id}(\${index}, 'question', this.value)">\${cat.question}</textarea>
+                                    \`;
+                                    container.appendChild(div);
+                                });
+                            };
+
+                            window.addCategory_${g.id} = function() {
+                                categories_${g.id}.push({ name: '', question: '' });
+                                window.renderCategories_${g.id}();
+                            };
+
+                            window.removeCategory_${g.id} = function(index) {
+                                categories_${g.id}.splice(index, 1);
+                                if (categories_${g.id}.length === 0) {
+                                    categories_${g.id}.push({ name: 'Pomoc', question: 'Opisz swój problem:' });
+                                }
+                                window.renderCategories_${g.id}();
+                            };
+
+                            window.updateCatData_${g.id} = function(index, field, value) {
+                                if (categories_${g.id}[index]) {
+                                    categories_${g.id}[index][field] = value;
+                                }
+                            };
+
+                            window.renderCategories_${g.id}();
+                        })();
                     </script>
                 `;
             } else {
@@ -449,14 +461,11 @@ app.post('/configure-ticket', async (req, res) => {
     try {
         const config = await getServerConfig(guildId);
 
-        // Usuń stary panel, jeśli jest zapisany w bazie
         if (config.ticketMessageId) {
             try {
                 const oldMsg = await channel.messages.fetch(config.ticketMessageId);
                 if (oldMsg) await oldMsg.delete();
-            } catch (e) {
-                // Wiadomość mogła już nie istniej
-            }
+            } catch (e) {}
         }
 
         const selectMenu = new StringSelectMenuBuilder()
@@ -471,8 +480,6 @@ app.post('/configure-ticket', async (req, res) => {
             );
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
-
-        // Wyślij zupełnie nową wiadomość z panelem
         const msgSent = await channel.send({ content: `${ticketTitle}\n${ticketMessage}`, components: [row] });
 
         await saveServerConfig(guildId, { 
@@ -484,7 +491,7 @@ app.post('/configure-ticket', async (req, res) => {
             ticketMessageId: msgSent.id
         });
 
-        res.send('<h2>Panel ticketów zaktualizowany i wysłany jako nowa wiadomość!</h2><a href="/dashboard">Wróć do panelu</a>');
+        res.send('<h2>Panel ticketów zaktualizowany!</h2><a href="/dashboard">Wróć do panelu</a>');
     } catch (err) {
         console.error(err);
         res.send('Wystąpił błąd. <a href="/dashboard">Wróć</a>');
