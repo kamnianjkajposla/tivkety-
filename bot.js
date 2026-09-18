@@ -4,7 +4,7 @@ const session = require('express-session');
 const admin = require('firebase-admin');
 
 // ==========================================
-// ⚙️ KONFIGURACJA FIREBASE
+// ⚙️ KONFIGURACJA FIREBASE (ADMIN / BACKEND)
 // ==========================================
 try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -18,9 +18,9 @@ try {
             credential: admin.credential.cert(serviceAccount)
         });
     }
-    console.log("Połączono z Firebase pomyślnie!");
+    console.log("Połączono z Firebase Admin pomyślnie!");
 } catch (e) {
-    console.log("Błąd inicjalizacji Firebase: Upewnij się, że poświadczenia są skonfigurowane.");
+    console.log("Błąd inicjalizacji Firebase Admin: Upewnij się, że poświadczenia są skonfigurowane w Render lub jako plik lokalny.");
 }
 
 const db = admin.apps.length ? admin.firestore() : null;
@@ -47,14 +47,23 @@ async function saveServerConfig(guildId, data) {
 }
 
 // ==========================================
-// ⚙️ KONFIGURACJA OAUTH2 (DISCORD LOGIN)
+// ⚙️ KONFIGURACJA OAUTH2 I FIREBASE WEB
 // ==========================================
 const CONFIG = {
     CLIENT_ID: process.env.DISCORD_CLIENT_ID || '1548644251884195880',
     CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'emTOywckSfXFKr8xCwWNiJW_6az1IAE0',
     REDIRECT_URI: process.env.DISCORD_REDIRECT_URI || 'https://tivkety.onrender.com/auth/discord/callback',
     PORT: process.env.PORT || 10000,
-    SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123'
+    SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123',
+    // Konfiguracja Firebase Web (z konsoli Firebase)
+    FIREBASE_WEB_CONFIG: JSON.stringify({
+        apiKey: "AIzaSyBlhq_Qw_D_irwqm4VPqT6rKRapl3bdeLc",
+        authDomain: "botdc-43757.firebaseapp.com",
+        projectId: "botdc-43757",
+        storageBucket: "botdc-43757.firebasestorage.app",
+        messagingSenderId: "848908548545",
+        appId: "1:848908548545:web:bec47867e9073b0f051740"
+    })
 };
 
 const loginHistory = [];
@@ -194,7 +203,6 @@ app.get('/dashboard', async (req, res) => {
                     roleOptions += `<option value="${r.id}">@${r.name}</option>`;
                 });
 
-                // Generowanie selectów z zaznaczeniem zapisanej wartości
                 const makeSelect = (name, options, selectedVal) => {
                     return `<select name="${name}" required style="width: 100%; padding: 6px; margin-top: 2px; margin-bottom: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">` +
                         options.replace(`value="${selectedVal}"`, `value="${selectedVal}" selected`) +
@@ -264,6 +272,13 @@ app.get('/dashboard', async (req, res) => {
                     ul { padding-left: 20px; max-height: 150px; overflow-y: auto; font-size: 13px; background: #1e1f22; padding: 10px; border-radius: 5px; }
                     .servers-list { max-height: 550px; overflow-y: auto; padding-right: 5px; }
                 </style>
+                <!-- Firebase Web SDK Integration -->
+                <script type="module">
+                    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+                    const firebaseConfig = ${CONFIG.FIREBASE_WEB_CONFIG};
+                    const app = initializeApp(firebaseConfig);
+                    console.log("Firebase Web zainicjalizowany pomyślnie w przeglądarce.");
+                </script>
             </head>
             <body>
                 <div class="container">
