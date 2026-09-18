@@ -222,11 +222,11 @@ app.get('/dashboard', async (req, res) => {
                     categoriesHtml += `
                         <div class="category-item" style="background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
-                                <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Kategoria / Pytanie #${index + 1}</span>
+                                <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Pytanie #${index + 1}</span>
                                 <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
                             </div>
                             <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
-                            <input type="text" name="catName[]" value="${cat.name}" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
+                            <input type="text" name="catName[]" value="${cat.name.replace(/"/g, '&quot;')}" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
                             <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
                             <textarea name="catQuestion[]" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;">${cat.question}</textarea>
                         </div>
@@ -245,7 +245,7 @@ app.get('/dashboard', async (req, res) => {
                         <label style="font-size: 11px; color: #dbdee1;">Rola po weryfikacji:</label>
                         ${makeSelect('roleId', roleOptions, savedConfig.verifyRole)}
                         <label style="font-size: 11px; color: #dbdee1;">Nagłówek / Tytuł:</label>
-                        <input type="text" name="verifyTitle" value="${savedConfig.verifyTitle || '**Weryfikacja serwera**'}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
+                        <input type="text" name="verifyTitle" value="${(savedConfig.verifyTitle || '**Weryfikacja serwera**').replace(/"/g, '&quot;')}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
                         <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                         <textarea name="verifyMsg" style="width: 100%; padding: 6px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px; height: 60px;">${savedConfig.verifyMsg || 'Kliknij poniższy przycisk, aby odblokować dostęp.'}</textarea>
                         <button type="submit" style="padding: 6px; font-size: 12px; background: #5865F2; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Zapisz i zaktualizuj weryfikację</button>
@@ -265,14 +265,14 @@ app.get('/dashboard', async (req, res) => {
                         </div>
 
                         <label style="font-size: 11px; color: #dbdee1;">Nagłówek embeda:</label>
-                        <input type="text" name="ticketTitle" value="${savedConfig.ticketTitle || '**System Zgłoszeń**'}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
+                        <input type="text" name="ticketTitle" value="${(savedConfig.ticketTitle || '**System Zgłoszeń**').replace(/"/g, '&quot;')}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
 
                         <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości panelu:</label>
                         <textarea name="ticketMessage" style="width: 100%; padding: 6px; margin-bottom: 10px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px; height: 60px;">${savedConfig.ticketMessage || 'Wybierz kategorię zgłoszenia:'}</textarea>
 
                         <div style="border-top: 1px solid #383a40; padding-top: 8px; margin-bottom: 8px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                                <strong style="font-size: 11px; color: #b5bac1;">Kategorie i pytania (Można dodać wiele):</strong>
+                                <strong style="font-size: 11px; color: #b5bac1;">Kategorie i pytania:</strong>
                                 <button type="button" onclick="addCategory_${g.id}()" style="background: #23a55a; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">+ Dodaj pytanie</button>
                             </div>
                             <div id="categoriesContainer_${g.id}">
@@ -293,7 +293,7 @@ app.get('/dashboard', async (req, res) => {
                                     <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Nowe Pytanie</span>
                                     <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń</button>
                                 </div>
-                                <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii:</label>
+                                <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii (Wybór w menu):</label>
                                 <input type="text" name="catName[]" required placeholder="np. Skarga" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
                                 <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
                                 <textarea name="catQuestion[]" required placeholder="Podaj szczegóły:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
@@ -383,14 +383,12 @@ app.post('/configure-verify', async (req, res) => {
         );
 
         let msgSent;
-        // Sprawdź, czy mamy już zapisane ID wiadomości weryfikacji i czy wciąż istnieje na kanale
         if (config.verifyMessageId) {
             try {
                 const existingMsg = await channel.messages.fetch(config.verifyMessageId);
                 await existingMsg.edit({ content: `${verifyTitle}\n${verifyMsg}`, components: [row] });
                 msgSent = existingMsg;
             } catch (err) {
-                // Wiadomość została usunięta ręcznie, wyślij nową
                 msgSent = await channel.send({ content: `${verifyTitle}\n${verifyMsg}`, components: [row] });
             }
         } else {
@@ -460,7 +458,6 @@ app.post('/configure-ticket', async (req, res) => {
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
         let msgSent;
-        // Sprawdź, czy panel ticketów już istnieje i edytuj go zamiast wysyłać nowy
         if (config.ticketMessageId) {
             try {
                 const existingMsg = await channel.messages.fetch(config.ticketMessageId);
@@ -594,7 +591,6 @@ client.on('interactionCreate', async interaction => {
                 permissionOverwrites: overwrites,
             });
 
-            // Przygotowanie oznaczeń ról wsparcia
             const supportMentions = supportRoles.map(rId => `<@&${rId}>`).join(' ');
 
             const actionRow = new ActionRowBuilder().addComponents(
@@ -602,7 +598,6 @@ client.on('interactionCreate', async interaction => {
                 new ButtonBuilder().setCustomId('close_ticket').setLabel('Zamknij ticket 🔒').setStyle(ButtonStyle.Danger)
             );
 
-            // Oznaczanie użytkownika i administratorów (ról wsparcia)
             await ticketChannel.send({
                 content: `Witaj ${user}!\n**Role obsługi:** ${supportMentions || 'Brak'}\n**Kategoria:** ${category.name}\n**Odpowiedź na pytanie:**\n> ${userAnswer}\n\n*Administracja wkrótce odpowie.*`,
                 components: [actionRow]
