@@ -449,6 +449,16 @@ app.post('/configure-ticket', async (req, res) => {
     try {
         const config = await getServerConfig(guildId);
 
+        // Usuń stary panel, jeśli jest zapisany w bazie
+        if (config.ticketMessageId) {
+            try {
+                const oldMsg = await channel.messages.fetch(config.ticketMessageId);
+                if (oldMsg) await oldMsg.delete();
+            } catch (e) {
+                // Wiadomość mogła już nie istniej
+            }
+        }
+
         const selectMenu = new StringSelectMenuBuilder()
             .setCustomId('ticket_select_category')
             .setPlaceholder('Wybierz kategorię zgłoszenia...')
@@ -462,18 +472,8 @@ app.post('/configure-ticket', async (req, res) => {
 
         const row = new ActionRowBuilder().addComponents(selectMenu);
 
-        let msgSent;
-        if (config.ticketMessageId) {
-            try {
-                const existingMsg = await channel.messages.fetch(config.ticketMessageId);
-                await existingMsg.edit({ content: `${ticketTitle}\n${ticketMessage}`, components: [row] });
-                msgSent = existingMsg;
-            } catch (err) {
-                msgSent = await channel.send({ content: `${ticketTitle}\n${ticketMessage}`, components: [row] });
-            }
-        } else {
-            msgSent = await channel.send({ content: `${ticketTitle}\n${ticketMessage}`, components: [row] });
-        }
+        // Wyślij zupełnie nową wiadomość z panelem
+        const msgSent = await channel.send({ content: `${ticketTitle}\n${ticketMessage}`, components: [row] });
 
         await saveServerConfig(guildId, { 
             ticketChannel: ticketChannelId, 
@@ -484,7 +484,7 @@ app.post('/configure-ticket', async (req, res) => {
             ticketMessageId: msgSent.id
         });
 
-        res.send('<h2>Panel ticketów zaktualizowany!</h2><a href="/dashboard">Wróć do panelu</a>');
+        res.send('<h2>Panel ticketów zaktualizowany i wysłany jako nowa wiadomość!</h2><a href="/dashboard">Wróć do panelu</a>');
     } catch (err) {
         console.error(err);
         res.send('Wystąpił błąd. <a href="/dashboard">Wróć</a>');
