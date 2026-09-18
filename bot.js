@@ -74,7 +74,7 @@ let clientInstance = null;
 // --- SERWER HTTP I PANEL WWW ---
 const app = express();
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.json());
 app.use(session({
     secret: CONFIG.SESSION_SECRET,
@@ -104,7 +104,7 @@ app.get('/', (req, res) => {
             <body>
                 <div class="card">
                     <h1>Panel Tivkety</h1>
-                    <p>Zarządzaj weryfikacją, kategoriami ticketów i pytaniami.</p>
+                    <p>Zarządzaj weryfikacją, wieloma kategoriami i rolami obsługi.</p>
                     <a href="${discordAuthUrl}" class="btn-discord">Zaloguj przez Discord</a>
                 </div>
             </body>
@@ -196,8 +196,12 @@ app.get('/dashboard', async (req, res) => {
                 let channelOptions = '<option value="">-- Wybierz kanał --</option>';
                 channels.forEach(c => { channelOptions += `<option value="${c.id}">#${c.name}</option>`; });
 
-                let roleOptions = '<option value="">-- Wybierz rolę --</option>';
-                roles.forEach(r => { roleOptions += `<option value="${r.id}">@${r.name}</option>`; });
+                let roleCheckboxes = '';
+                const savedSupportRoles = savedConfig.supportRoles || [];
+                roles.forEach(r => {
+                    const isChecked = savedSupportRoles.includes(r.id) ? 'checked' : '';
+                    roleCheckboxes += `<label style="display:inline-block; margin-right: 10px; font-size:11px; color:#dbdee1;"><input type="checkbox" name="supportRoles" value="${r.id}" ${isChecked}> @${r.name}</label>`;
+                });
 
                 const makeSelect = (name, options, selectedVal) => {
                     return `<select name="${name}" required style="width: 100%; padding: 6px; margin-top: 2px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">` +
@@ -206,18 +210,21 @@ app.get('/dashboard', async (req, res) => {
                 };
 
                 const categories = savedConfig.ticketCategories || [
-                    { name: 'Pomoc Techniczna', question: 'Opisz swój problem:' },
-                    { name: 'Współpraca', question: 'Podaj szczegóły propozycji:' }
+                    { name: 'Pomoc Techniczna', question: 'Opisz swój problem dokładnie:' }
                 ];
 
                 let categoriesHtml = '';
                 categories.forEach((cat, index) => {
                     categoriesHtml += `
-                        <div style="background: #2b2d31; padding: 8px; border-radius: 4px; margin-bottom: 8px;">
+                        <div class="category-item" style="background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Kategoria #${index + 1}</span>
+                                <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń kategorię</button>
+                            </div>
                             <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii:</label>
-                            <input type="text" name="catName_${index}" value="${cat.name}" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 4px;">
-                            <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu:</label>
-                            <input type="text" name="catQuestion_${index}" value="${cat.question}" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px;">
+                            <input type="text" name="catName[]" value="${cat.name}" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
+                            <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
+                            <textarea name="catQuestion[]" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;">${cat.question}</textarea>
                         </div>
                     `;
                 });
@@ -235,36 +242,63 @@ app.get('/dashboard', async (req, res) => {
                         ${makeSelect('roleId', roleOptions, savedConfig.verifyRole)}
                         <label style="font-size: 11px; color: #dbdee1;">Nagłówek / Tytuł:</label>
                         <input type="text" name="verifyTitle" value="${savedConfig.verifyTitle || '**Weryfikacja serwera**'}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
-                        <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
-                        <input type="text" name="verifyMsg" value="${savedConfig.verifyMsg || 'Kliknij poniższy przycisk, aby odblokować dostęp:'}" style="width: 100%; padding: 6px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
+                        <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości (dłuższy opis):</label>
+                        <textarea name="verifyMsg" style="width: 100%; padding: 6px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px; height: 60px;">${savedConfig.verifyMsg || 'Kliknij poniższy przycisk, aby odblokować dostęp do całego serwera i zapoznać się z regulaminem.'}</textarea>
                         <button type="submit" style="padding: 6px; font-size: 12px; background: #5865F2; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Wyślij panel weryfikacji</button>
                     </form>
 
                     <!-- TICKETY -->
-                    <form method="POST" action="/configure-ticket">
+                    <form method="POST" action="/configure-ticket" id="ticketForm_${g.id}">
                         <input type="hidden" name="guildId" value="${g.id}">
                         <strong style="color: #5865F2; font-size: 13px;">Tickety i Uprawnienia:</strong>
                         
                         <label style="font-size: 11px; color: #dbdee1; margin-top: 5px;">Kanał panelu ticketów:</label>
                         ${makeSelect('ticketChannelId', channelOptions, savedConfig.ticketChannel)}
                         
-                        <label style="font-size: 11px; color: #dbdee1;">Rola obsługująca tickety (Moderator/Admin):</label>
-                        ${makeSelect('supportRoleId', roleOptions, savedConfig.supportRole)}
-                        <small style="color: #949ba4; font-size: 10px; display: block; margin-bottom: 5px;">* Właściciel serwera i osoby z uprawnieniem Administrator zawsze mają pełny dostęp.</small>
+                        <label style="font-size: 11px; color: #dbdee1; margin-top: 5px;">Role obsługujące tickety (zaznacz jedną lub wiele):</label>
+                        <div style="max-height: 90px; overflow-y: auto; background: #2b2d31; padding: 6px; border-radius: 4px; margin-bottom: 8px; border: 1px solid #4e5058;">
+                            ${roleCheckboxes || '<span style="font-size:11px; color:#949ba4;">Brak ról do wyboru</span>'}
+                        </div>
+                        <small style="color: #949ba4; font-size: 10px; display: block; margin-bottom: 8px;">* Właściciel serwera i osoby z uprawnieniem Administrator mają pełny dostęp automatycznie.</small>
 
                         <label style="font-size: 11px; color: #dbdee1;">Nagłówek embeda:</label>
                         <input type="text" name="ticketTitle" value="${savedConfig.ticketTitle || '**System Zgłoszeń (Tickety)**'}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
 
-                        <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości panelu:</label>
-                        <input type="text" name="ticketMessage" value="${savedConfig.ticketMessage || 'Wybierz kategorię zgłoszenia z poniższego menu:'}" style="width: 100%; padding: 6px; margin-bottom: 10px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
+                        <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości panelu (dłuższy opis):</label>
+                        <textarea name="ticketMessage" style="width: 100%; padding: 6px; margin-bottom: 10px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px; height: 60px;">${savedConfig.ticketMessage || 'Wybierz odpowiednią kategorię z poniższego menu, aby utworzyć zgłoszenie i skontaktować się z administracją.'}</textarea>
 
                         <div style="border-top: 1px solid #383a40; padding-top: 8px; margin-bottom: 8px;">
-                            <strong style="font-size: 11px; color: #b5bac1;">Kategorie i pytania w formularzu:</strong>
-                            ${categoriesHtml}
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                                <strong style="font-size: 11px; color: #b5bac1;">Kategorie i pytania:</strong>
+                                <button type="button" onclick="addCategory_${g.id}()" style="background: #23a55a; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;">+ Dodaj kategorię</button>
+                            </div>
+                            <div id="categoriesContainer_${g.id}">
+                                ${categoriesHtml}
+                            </div>
                         </div>
 
                         <button type="submit" style="padding: 6px; font-size: 12px; background: #23a55a; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Wyślij / Zaktualizuj panel ticketów</button>
                     </form>
+                    <script>
+                        function addCategory_${g.id}() {
+                            const container = document.getElementById('categoriesContainer_${g.id}');
+                            const count = container.children.length + 1;
+                            const div = document.createElement('div');
+                            div.className = 'category-item';
+                            div.style.cssText = 'background: #2b2d31; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #383a40;';
+                            div.innerHTML = \`
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                                    <span style="font-size: 11px; color: #5865F2; font-weight: bold;">Nowa Kategoria</span>
+                                    <button type="button" onclick="this.closest('.category-item').remove()" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń kategorię</button>
+                                </div>
+                                <label style="font-size: 10px; color: #949ba4;">Nazwa Kategorii:</label>
+                                <input type="text" name="catName[]" required placeholder="np. Skarga" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; margin-bottom: 5px;">
+                                <label style="font-size: 10px; color: #949ba4;">Pytanie w formularzu (Modal):</label>
+                                <textarea name="catQuestion[]" required placeholder="Podaj nick oskarżonego i dowody:" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 3px; font-size: 11px; resize: vertical; height: 45px;"></textarea>
+                            \`;
+                            container.appendChild(div);
+                        }
+                    </script>
                 `;
             } else {
                 const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&permissions=8&scope=bot&guild_id=${g.id}&disable_guild_select=true`;
@@ -289,20 +323,19 @@ app.get('/dashboard', async (req, res) => {
                 <style>
                     body { font-family: Arial, sans-serif; background-color: #313338; color: #fff; text-align: center; padding: 30px; }
                     .container { display: flex; justify-content: center; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
-                    .card { background-color: #2b2d31; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 500px; text-align: left; }
+                    .card { background-color: #2b2d31; padding: 25px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); width: 520px; text-align: left; }
                     h1 { color: #5865F2; text-align: center; font-size: 22px; }
                     h3 { font-size: 15px; margin-top: 0; color: #b5bac1; border-bottom: 1px solid #4e5058; padding-bottom: 8px; }
                     label { display: block; margin-top: 4px; color: #dbdee1; font-size: 12px; }
                     .logout { display: block; text-align: center; margin-top: 20px; color: #f23f43; text-decoration: none; font-weight: bold; }
                     .stat-box { background: #1e1f22; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 14px; }
                     ul { padding-left: 20px; max-height: 150px; overflow-y: auto; font-size: 13px; background: #1e1f22; padding: 10px; border-radius: 5px; }
-                    .servers-list { max-height: 600px; overflow-y: auto; padding-right: 5px; }
+                    .servers-list { max-height: 650px; overflow-y: auto; padding-right: 5px; }
                 </style>
                 <script type="module">
                     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
                     const firebaseConfig = ${CONFIG.FIREBASE_WEB_CONFIG};
                     initializeApp(firebaseConfig);
-                    console.log("Firebase Web zainicjalizowany pomyślnie.");
                 </script>
             </head>
             <body>
@@ -367,7 +400,9 @@ app.post('/configure-verify', async (req, res) => {
 
 app.post('/configure-ticket', async (req, res) => {
     if (!req.session.loggedIn) return res.redirect('/');
-    const { guildId, ticketChannelId, supportRoleId, ticketTitle, ticketMessage } = req.body;
+    const { guildId, ticketChannelId, ticketTitle, ticketMessage } = req.body;
+    let supportRoles = req.body.supportRoles || [];
+    if (!Array.isArray(supportRoles)) supportRoles = [supportRoles];
 
     const guild = clientInstance.guilds.cache.get(guildId);
     if (!guild) return res.send('Nie znaleziono bota na serwerze. <a href="/dashboard">Wróć</a>');
@@ -375,16 +410,30 @@ app.post('/configure-ticket', async (req, res) => {
     const channel = guild.channels.cache.get(ticketChannelId);
     if (!channel) return res.send('Nie znaleziono kanału ticketów. <a href="/dashboard">Wróć</a>');
 
-    // Zbieranie kategorii i pytań dynamicznych z formularza
-    const categories = [
-        { name: req.body.catName_0 || 'Pomoc Techniczna', question: req.body.catQuestion_0 || 'Opisz problem:' },
-        { name: req.body.catName_1 || 'Współpraca', question: req.body.catQuestion_1 || 'Podaj szczegóły:' }
-    ];
+    // Odczytanie dynamicznych tablic kategorii i pytań z formularza
+    let names = req.body['catName[]'] || [];
+    let questions = req.body['catQuestion[]'] || [];
+    if (!Array.isArray(names)) names = [names];
+    if (!Array.isArray(questions)) questions = [questions];
+
+    const categories = [];
+    for (let i = 0; i < names.length; i++) {
+        if (names[i] && names[i].trim() !== '') {
+            categories.push({
+                name: names[i].trim(),
+                question: (questions[i] || 'Opisz swój problem:').trim()
+            });
+        }
+    }
+
+    if (categories.length === 0) {
+        categories.push({ name: 'Pomoc', question: 'Opisz swój problem:' });
+    }
 
     try {
         await saveServerConfig(guildId, { 
             ticketChannel: ticketChannelId, 
-            supportRole: supportRoleId, 
+            supportRoles: supportRoles, 
             ticketTitle, 
             ticketMessage,
             ticketCategories: categories 
@@ -395,9 +444,9 @@ app.post('/configure-ticket', async (req, res) => {
             .setPlaceholder('Wybierz kategorię zgłoszenia...')
             .addOptions(
                 categories.map((cat, idx) => ({
-                    label: cat.name,
+                    label: cat.name.substring(0, 25),
                     value: `cat_${idx}`,
-                    description: `Otwórz zgłoszenie w kategorii: ${cat.name}`
+                    description: `Otwórz zgłoszenie w kategorii: ${cat.name}`.substring(0, 50)
                 }))
             );
 
@@ -408,7 +457,7 @@ app.post('/configure-ticket', async (req, res) => {
             components: [row]
         });
 
-        res.send('<h2>Panel ticketów z kategoriami zaktualizowany i wysłany!</h2><a href="/dashboard">Wróć do panelu</a>');
+        res.send('<h2>Panel ticketów z wieloma kategoriami zaktualizowany i wysłany!</h2><a href="/dashboard">Wróć do panelu</a>');
     } catch (err) {
         console.error(err);
         res.send('Wystąpił błąd. <a href="/dashboard">Wróć</a>');
@@ -465,9 +514,8 @@ client.on('interactionCreate', async interaction => {
         await interaction.reply({ content: 'Użyj panelu internetowego na stronie, aby skonfigurować i wysłać panele!', ephemeral: true });
     }
 
-    // Wybór kategorii z menu rozwijanego
     if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_category') {
-        const selectedValue = interaction.values[0]; // np. cat_0
+        const selectedValue = interaction.values[0];
         const catIndex = parseInt(selectedValue.split('_')[1]);
 
         const config = await getServerConfig(interaction.guild.id);
@@ -476,7 +524,7 @@ client.on('interactionCreate', async interaction => {
 
         const modal = new ModalBuilder()
             .setCustomId(`ticket_modal_${catIndex}`)
-            .setTitle(`Zgłoszenie: ${category.name}`);
+            .setTitle(`Zgłoszenie: ${category.name}`.substring(0, 45));
 
         const answerInput = new TextInputBuilder()
             .setCustomId('ticket_user_answer')
@@ -488,7 +536,6 @@ client.on('interactionCreate', async interaction => {
         await interaction.showModal(modal);
     }
 
-    // Obsługa wysłania modala z odpowiedziami na pytania
     if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
         const catIndex = parseInt(interaction.customId.split('_')[2]);
         const config = await getServerConfig(interaction.guild.id);
@@ -502,22 +549,23 @@ client.on('interactionCreate', async interaction => {
         await interaction.deferReply({ ephemeral: true });
 
         try {
-            // Uprawnienia: Widzą administratorzy, właściciel, bot, skonfigurowana rola supportu oraz sam użytkownik
+            // Uprawnienia: Administratorzy, właściciel, bot, oraz wszystkie wybrane role supportu
             const overwrites = [
                 { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
                 { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
                 { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] }
             ];
 
-            if (config.supportRole) {
+            const supportRoles = config.supportRoles || [];
+            supportRoles.forEach(roleId => {
                 overwrites.push({
-                    id: config.supportRole,
+                    id: roleId,
                     allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory]
                 });
-            }
+            });
 
             const ticketChannel = await guild.channels.create({
-                name: `ticket-${user.username}`,
+                name: `ticket-${user.username}`.toLowerCase().replace(/[^a-z0-9-_]/g, ''),
                 type: ChannelType.GuildText,
                 permissionOverwrites: overwrites,
             });
@@ -558,11 +606,11 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        // Przejmowanie ticketu przez administrację (Claim)
         if (interaction.customId === 'claim_ticket') {
             const config = await getServerConfig(interaction.guild.id);
-            const isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) || 
-                              (config.supportRole && interaction.member.roles.cache.has(config.supportRole));
+            const supportRoles = config.supportRoles || [];
+            const hasRole = supportRoles.some(roleId => interaction.member.roles.cache.has(roleId));
+            const isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) || hasRole;
 
             if (!isSupport) {
                 return interaction.reply({ content: 'Nie masz uprawnień do przejęcia tego ticketu!', ephemeral: true });
