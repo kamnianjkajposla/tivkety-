@@ -57,15 +57,7 @@ const CONFIG = {
     CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'emTOywckSfXFKr8xCwWNiJW_6az1IAE0',
     REDIRECT_URI: process.env.DISCORD_REDIRECT_URI || 'https://tivkety.onrender.com/auth/discord/callback',
     PORT: process.env.PORT || 10000,
-    SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123',
-    FIREBASE_WEB_CONFIG: JSON.stringify({
-        apiKey: "AIzaSyBlhq_Qw_D_irwqm4VPqT6rKRapl3bdeLc",
-        authDomain: "botdc-43757.firebaseapp.com",
-        projectId: "botdc-43757",
-        storageBucket: "botdc-43757.firebasestorage.app",
-        messagingSenderId: "848908548545",
-        appId: "1:848908548545:web:bec47867e9073b0f051740"
-    })
+    SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123'
 };
 
 const loginHistory = [];
@@ -204,6 +196,9 @@ app.get('/dashboard', async (req, res) => {
 
                 let channelOptions = '<option value="">-- Wybierz kanał --</option>';
                 channels.forEach(c => { channelOptions += `<option value="${c.id}">#${c.name}</option>`; });
+
+                let roleOptions = '<option value="">-- Wybierz rolę --</option>';
+                roles.forEach(r => { roleOptions += `<option value="${r.id}">@${r.name}</option>`; });
 
                 let roleCheckboxes = '';
                 const savedSupportRoles = savedConfig.supportRoles || [];
@@ -590,7 +585,7 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         if (interaction.customId === 'verify_button') {
             const config = await getServerConfig(interaction.guild.id);
-            const verifiedRoleId = config.verifyRole || interaction.guild.roles.cache.find(r => r.name.toLowerCase() === 'zweryfikowany')?.id;
+            const verifiedRoleId = config.verifyRole || interaction.guild.roles.cache.get(r => r.name.toLowerCase() === 'zweryfikowany')?.id;
             
             if (!verifiedRoleId) return interaction.reply({ content: 'Brak skonfigurowanej roli weryfikacji.', ephemeral: true });
 
