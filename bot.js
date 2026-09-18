@@ -4,29 +4,34 @@ const session = require('express-session');
 const admin = require('firebase-admin');
 
 // ==========================================
-// ⚙️ KONFIGURACJA FIREBASE (ADMIN / BACKEND)
+// ⚙️ KONFIGURACJA FIREBASE (Z DIAGNOSTYKĄ)
 // ==========================================
+let db = null;
 try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+        const rawCreds = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+        const serviceAccount = JSON.parse(rawCreds);
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
         });
+        console.log("✅ Połączono z Firebase Admin używając zmiennej środowiskowej!");
     } else {
         const serviceAccount = require('./serviceAccountKey.json');
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
         });
+        console.log("✅ Połączono z Firebase Admin używając pliku lokalnego!");
     }
-    console.log("Połączono z Firebase Admin pomyślnie!");
+    db = admin.firestore();
 } catch (e) {
-    console.log("Błąd inicjalizacji Firebase Admin: Upewnij się, że poświadczenia są skonfigurowane w Render lub jako plik lokalny.");
+    console.error("❌ KRYTYCZNY BŁĄD INICJALIZACJI FIREBASE:", e.message);
 }
 
-const db = admin.apps.length ? admin.firestore() : null;
-
 async function getServerConfig(guildId) {
-    if (!db) return {};
+    if (!db) {
+        console.log("⚠️ Próba pobrania configu, ale baza 'db' nie jest gotowa!");
+        return {};
+    }
     try {
         const docRef = db.collection('server_configs').doc(guildId);
         const doc = await docRef.get();
@@ -38,11 +43,15 @@ async function getServerConfig(guildId) {
 }
 
 async function saveServerConfig(guildId, data) {
-    if (!db) return;
+    if (!db) {
+        console.log("❌ BŁĄD ZAPISU: Baza 'db' jest niedostępna! Sprawdź zmienną FIREBASE_SERVICE_ACCOUNT na Renderze.");
+        return;
+    }
     try {
         await db.collection('server_configs').doc(guildId).set(data, { merge: true });
+        console.log(`✅ Zapisano pomyślnie config dla serwera: ${guildId}`);
     } catch (err) {
-        console.error('Błąd zapisu konfiguracji do Firebase:', err);
+        console.error('❌ Błąd zapisu konfiguracji do Firebase:', err);
     }
 }
 
@@ -55,7 +64,6 @@ const CONFIG = {
     REDIRECT_URI: process.env.DISCORD_REDIRECT_URI || 'https://tivkety.onrender.com/auth/discord/callback',
     PORT: process.env.PORT || 10000,
     SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123',
-    // Konfiguracja Firebase Web (z konsoli Firebase)
     FIREBASE_WEB_CONFIG: JSON.stringify({
         apiKey: "AIzaSyBlhq_Qw_D_irwqm4VPqT6rKRapl3bdeLc",
         authDomain: "botdc-43757.firebaseapp.com",
@@ -272,7 +280,6 @@ app.get('/dashboard', async (req, res) => {
                     ul { padding-left: 20px; max-height: 150px; overflow-y: auto; font-size: 13px; background: #1e1f22; padding: 10px; border-radius: 5px; }
                     .servers-list { max-height: 550px; overflow-y: auto; padding-right: 5px; }
                 </style>
-                <!-- Firebase Web SDK Integration -->
                 <script type="module">
                     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
                     const firebaseConfig = ${CONFIG.FIREBASE_WEB_CONFIG};
