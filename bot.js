@@ -64,7 +64,6 @@ const CONFIG = {
 const loginHistory = [];
 let clientInstance = null;
 
-// --- SERWER HTTP I PANEL WWW ---
 const app = express();
 
 app.set('trust proxy', 1);
@@ -197,15 +196,15 @@ app.get('/dashboard', async (req, res) => {
                 let channelOptions = '<option value="">-- Wybierz kanał --</option>';
                 channels.forEach(c => { channelOptions += `<option value="${c.id}">#${c.name}</option>`; });
 
-                let roleOptions = '<option value="">-- Wybierz rolę --</option>';
-                roles.forEach(r => { roleOptions += `<option value="${r.id}">@${r.name}</option>`; });
-
                 let roleCheckboxes = '';
                 const savedSupportRoles = savedConfig.supportRoles || [];
                 roles.forEach(r => {
                     const isChecked = savedSupportRoles.includes(r.id) ? 'checked' : '';
                     roleCheckboxes += `<label style="display:inline-block; margin-right: 10px; font-size:11px; color:#dbdee1;"><input type="checkbox" name="supportRoles" value="${r.id}" ${isChecked} form="ticketForm_${g.id}"> @${r.name}</label>`;
                 });
+
+                let roleOptions = '<option value="">-- Wybierz rolę --</option>';
+                roles.forEach(r => { roleOptions += `<option value="${r.id}">@${r.name}</option>`; });
 
                 const makeSelect = (name, options, selectedVal, formId) => {
                     let formAttr = formId ? `form="${formId}"` : '';
@@ -233,7 +232,7 @@ app.get('/dashboard', async (req, res) => {
                         <input type="text" name="verifyTitle" value="${(savedConfig.verifyTitle || '**Weryfikacja serwera**').replace(/"/g, '&quot;')}" style="width: 100%; padding: 6px; margin-bottom: 6px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px;">
                         <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                         <textarea name="verifyMsg" style="width: 100%; padding: 6px; margin-bottom: 8px; background: #2b2d31; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 12px; height: 60px;">${savedConfig.verifyMsg || 'Kliknij poniższy przycisk, aby odblokować dostęp.'}</textarea>
-                        <button type="submit" style="padding: 6px; font-size: 12px; background: #5865F2; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Zapisz i zaktualizuj weryfikację</button>
+                        <button type="submit" style="padding: 6px; font-size: 12px; background: #5865F2; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Zapisz weryfikację</button>
                     </form>
 
                     <!-- TICKETY -->
@@ -263,7 +262,7 @@ app.get('/dashboard', async (req, res) => {
                             <div id="categoriesContainer_${g.id}"></div>
                         </div>
 
-                        <button type="submit" style="padding: 6px; font-size: 12px; background: #23a55a; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Zapisz i zaktualizuj panel ticketów</button>
+                        <button type="submit" style="padding: 6px; font-size: 12px; background: #23a55a; color:#fff; border:none; border-radius:4px; cursor:pointer; font-weight:bold; width:100%;">Zapisz panel ticketów (Edytuje wiadomość)</button>
                     </form>
                     <script>
                         (function() {
@@ -423,12 +422,10 @@ app.post('/configure-verify', async (req, res) => {
     }
 });
 
-// Podpięcie tras z modułu tickets.js
 setupTicketsRouter(app, getServerConfig, saveServerConfig, () => clientInstance);
 
 app.listen(CONFIG.PORT, () => console.log(`Serwer HTTP uruchomiony na porcie ${CONFIG.PORT}`));
 
-// --- BOT DISCORDA ---
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -473,10 +470,14 @@ client.on('interactionCreate', async interaction => {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.reply({ content: 'Brak uprawnień administratora!', ephemeral: true });
         }
-        await interaction.reply({ content: 'Użyj panelu internetowego na stronie, aby skonfigurować panele!', ephemeral: true });
+        
+        // Obsługa komend Slash
+        if (interaction.commandName === 'weryfikacja' || interaction.commandName === 'ticket') {
+            return interaction.reply({ content: 'Użyj panelu internetowego na stronie, aby skonfigurować i wysłać ten panel!', ephemeral: true });
+        }
     }
 
-    // Przekazanie obsługi interakcji ticketów do modułu tickets.js
+    // Przekazanie obsługi przycisków/menu/modali do modułu ticketów
     await handleTicketInteraction(interaction, getServerConfig);
 
     if (interaction.isButton()) {
@@ -500,7 +501,6 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// Zapobieganie wyłączaniu bota przy błędach
 process.on('unhandledRejection', error => {
     console.error('Unhandled promise rejection:', error);
 });
