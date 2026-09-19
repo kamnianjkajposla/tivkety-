@@ -114,7 +114,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
-// Bezpieczna obsługa wgrywania plików przez Multer przed przekazaniem do routera ticketów
+// Bezpieczna obsługa wgrywania plików przez Multer oraz wklejonego linku
 app.post('/configure-ticket', (req, res, next) => {
     upload.single('ticketImageFile')(req, res, function (err) {
         if (err instanceof multer.MulterError) {
@@ -171,6 +171,13 @@ app.get('/dashboard', async (req, res) => {
 
                 let chSelect = channelOptions.replace(`value="${mod.channelId}"`, `value="${mod.channelId}" selected`);
 
+                // Sprawdzenie czy obrazek to Base64 czy zwykły link
+                let currentUrlVal = '';
+                let currentImgVal = mod.image || '';
+                if (currentImgVal.startsWith('http://') || currentImgVal.startsWith('https://')) {
+                    currentUrlVal = currentImgVal;
+                }
+
                 let categoriesGrouped = [];
                 (mod.categories || []).forEach((cat, cIdx) => {
                     const qs = Array.isArray(cat.questions) ? cat.questions : [cat.question || 'Opisz problem:'];
@@ -208,7 +215,10 @@ app.get('/dashboard', async (req, res) => {
                             <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                             <textarea name="ticketMessage" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; height: 45px; margin-bottom: 6px;">${mod.message || ''}</textarea>
 
-                            <label style="font-size: 11px; color: #dbdee1;">Wgraj nowy obrazek / banner z komputera (opcjonalnie):</label>
+                            <label style="font-size: 11px; color: #dbdee1;">Wklej link do obrazka / bannera (URL):</label>
+                            <input type="url" name="ticketImageURL" value="${currentUrlVal}" placeholder="https://imgur.com/... lub bezpośredni link" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
+
+                            <label style="font-size: 11px; color: #dbdee1;">LUB wgraj plik z komputera:</label>
                             <input type="file" name="ticketImageFile" accept="image/*" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 10px; margin-bottom: 6px;">
 
                             <label style="font-size: 11px; color: #dbdee1; font-weight:bold; display:block; margin-top:5px;">Kategorie i pytania:</label>
