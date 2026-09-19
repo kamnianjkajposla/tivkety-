@@ -114,7 +114,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
-// Bezpieczna obsługa plików oraz linków z formularza
+// Poprawiona obsługa Multera – bezpieczne przetwarzanie plików i linków
 app.post('/configure-ticket', (req, res, next) => {
     upload.single('ticketImageFile')(req, res, function (err) {
         if (err instanceof multer.MulterError) {
