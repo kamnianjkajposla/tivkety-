@@ -19,7 +19,6 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             const channel = guild.channels.cache.get(ticketChannelId);
             if (!channel) return res.send('Nie znaleziono kanału. <a href="/dashboard">Wróć</a>');
 
-            // Obsługa wielu kategorii oraz wielu pytań w ramach kafelków
             let rawCatNames = req.body['catName[]'] || req.body.catName || [];
             let rawCatIndices = req.body['catIndex[]'] || req.body.catIndex || [];
             let rawQuestions = req.body['catQuestion[]'] || req.body.catQuestion || [];
@@ -28,20 +27,27 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             if (!Array.isArray(rawCatIndices)) rawCatIndices = [rawCatIndices];
             if (!Array.isArray(rawQuestions)) rawQuestions = [rawQuestions];
 
-            // Grupowanie pytań pod odpowiednie kategorie
             const categoriesMap = {};
             for (let i = 0; i < rawCatNames.length; i++) {
                 const name = String(rawCatNames[i] || '').trim();
-                const question = String(rawQuestions[i] || 'Opisz swój problem:').trim();
-                const cIndex = rawCatIndices[i] !== undefined ? rawCatIndices[i] : 0;
+                const question = String(rawQuestions[i] || '').trim();
+                const cIndex = rawCatIndices[i] !== undefined ? String(rawCatIndices[i]) : '0';
 
                 if (name.length > 0) {
                     if (!categoriesMap[cIndex]) {
                         categoriesMap[cIndex] = { name, questions: [] };
                     }
-                    categoriesMap[cIndex].questions.push(question);
+                    if (question.length > 0) {
+                        categoriesMap[cIndex].questions.push(question);
+                    }
                 }
             }
+
+            Object.values(categoriesMap).forEach(cat => {
+                if (cat.questions.length === 0) {
+                    cat.questions.push('Opisz swój problem:');
+                }
+            });
 
             const categories = Object.values(categoriesMap);
             if (categories.length === 0) {
@@ -71,7 +77,6 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             let msgSentId = existingModuleIndex !== -1 ? ticketModules[existingModuleIndex].messageId : null;
             let msgEdited = false;
 
-            // Stały panel - edytuje istniejącą wiadomość zamiast wysyłać nową
             if (msgSentId) {
                 try {
                     const oldMsg = await channel.messages.fetch(msgSentId);
@@ -79,9 +84,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                         await oldMsg.edit({ content: contentText, components: [row] });
                         msgEdited = true;
                     }
-                } catch (e) {
-                    // Wiadomość mogła być usunięta
-                }
+                } catch (e) {}
             }
 
             if (!msgEdited) {
@@ -139,7 +142,6 @@ async function handleTicketInteraction(interaction, getServerConfig) {
         const config = await getServerConfig(interaction.guild.id);
         const ticketModules = config.ticketModules || [];
 
-        // Krok 1: Użytkownik wybiera kategorię z menu
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
             const moduleId = interaction.customId.replace('ticket_select_', '');
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
@@ -150,7 +152,6 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             const categories = currentModule.categories || [];
             const category = categories[catIndex] || { name: 'Ogólne', questions: ['Opisz problem:'] };
 
-            // Pobieramy pierwsze pytanie z listy pytań dla tej kategorii
             const modal = new ModalBuilder()
                 .setCustomId(`ticket_modal_${moduleId}_${catIndex}_0`)
                 .setTitle(`Zgłoszenie: ${category.name}`.substring(0, 45));
@@ -166,7 +167,6 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             await interaction.showModal(modal);
         }
 
-        // Krok 2: Obsługa kolejnych pytań lub zakończenie i utworzenie ticketu
         if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
             const parts = interaction.customId.split('_');
             const moduleId = parts[2];
@@ -179,8 +179,6 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             const category = currentModule.categories[catIndex];
             const userAnswer = interaction.fields.getTextInputValue('ticket_q_0');
 
-            // Zapisujemy odpowiedź tymczasowo w pamięci interakcji lub przechodzimy do kolejnego pytania
-            // Dla uproszczonej obsługi wielu pytań tworzymy podsumowanie odpowiedzi
             if (!interaction.client.tempAnswers) interaction.client.tempAnswers = {};
             const userKey = `${interaction.user.id}_${moduleId}`;
             
@@ -194,7 +192,6 @@ async function handleTicketInteraction(interaction, getServerConfig) {
 
             const nextQIndex = questionIndex + 1;
             if (nextQIndex < category.questions.length) {
-                // Pokazujemy kolejne pytanie w nowym modalu (lub obsługujemy kolejne kroki)
                 const modal = new ModalBuilder()
                     .setCustomId(`ticket_modal_${moduleId}_${catIndex}_${nextQIndex}`)
                     .setTitle(`Pytanie ${nextQIndex + 1} / ${category.questions.length}`.substring(0, 45));
@@ -209,7 +206,6 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                 return await interaction.showModal(modal);
             }
 
-            // Wszystkie pytania zostały zebrane, tworzymy kanał ticketu
             await interaction.deferReply({ ephemeral: true });
 
             const guild = interaction.guild;
