@@ -64,9 +64,6 @@ app.use(session({
     }
 }));
 
-// Middleware do obsługi wgrywania plików z komputera
-app.use('/configure-ticket', upload.single('ticketImageFile'));
-
 app.get('/', (req, res) => {
     if (req.session.loggedIn && req.session.user) return res.redirect('/dashboard');
 
@@ -117,15 +114,26 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
+// Bezpieczna obsługa wgrywania plików przez Multer przed przekazaniem do routera ticketów
 app.post('/configure-ticket', (req, res, next) => {
-    if (req.file) {
-        // Konwersja załączonego pliku na base64/data-uri obsługiwane przez Discord.js
-        const b64 = Buffer.from(req.file.buffer).toString('base64');
-        req.body.ticketImageText = `data:${req.file.mimetype};base64,${b64}`;
-    } else {
-        req.body.ticketImageText = req.body.ticketImageURL || '';
-    }
-    next();
+    upload.single('ticketImageFile')(req, res, function (err) {
+        if (err instanceof multer.MulterError) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                return res.status(400).send('<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd: Przesłany obrazek jest za duży!</h2><p>Maksymalny rozmiar pliku to 8 MB.</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a></div>');
+            }
+            return res.status(400).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd ładowania pliku:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a></div>`);
+        } else if (err) {
+            return res.status(500).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Wystąpił nieznany błąd:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a></div>`);
+        }
+
+        if (req.file) {
+            const b64 = Buffer.from(req.file.buffer).toString('base64');
+            req.body.ticketImageText = `data:${req.file.mimetype};base64,${b64}`;
+        } else {
+            req.body.ticketImageText = req.body.ticketImageURL || '';
+        }
+        next();
+    });
 });
 
 app.get('/dashboard', async (req, res) => {
