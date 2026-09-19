@@ -2,6 +2,8 @@ const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle,
 const express = require('express');
 const session = require('express-session');
 const admin = require('firebase-admin');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 const { setupTicketsRouter, handleTicketInteraction } = require('./tickets');
 
 let db = null;
@@ -48,8 +50,8 @@ let clientInstance = null;
 const app = express();
 
 app.set('trust proxy', 1);
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-app.use(express.json());
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 app.use(session({
     secret: CONFIG.SESSION_SECRET,
@@ -61,6 +63,9 @@ app.use(session({
         maxAge: 30 * 24 * 60 * 60 * 1000 
     }
 }));
+
+// Middleware do obsługi wgrywania plików z komputera
+app.use('/configure-ticket', upload.single('ticketImageFile'));
 
 app.get('/', (req, res) => {
     if (req.session.loggedIn && req.session.user) return res.redirect('/dashboard');
@@ -112,6 +117,17 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
+app.post('/configure-ticket', (req, res, next) => {
+    if (req.file) {
+        // Konwersja załączonego pliku na base64/data-uri obsługiwane przez Discord.js
+        const b64 = Buffer.from(req.file.buffer).toString('base64');
+        req.body.ticketImageText = `data:${req.file.mimetype};base64,${b64}`;
+    } else {
+        req.body.ticketImageText = req.body.ticketImageURL || '';
+    }
+    next();
+});
+
 app.get('/dashboard', async (req, res) => {
     if (!req.session.loggedIn || !req.session.user) return res.redirect('/');
     if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia... Odśwież za chwilę.');
@@ -136,8 +152,6 @@ app.get('/dashboard', async (req, res) => {
             channels.forEach(c => { channelOptions += `<option value="${c.id}">#${c.name}</option>`; });
 
             let ticketModules = savedConfig.ticketModules || [];
-            
-            // SEKCJA LISTY PANELI ORAZ FORMULARZE EDYCJI
             let modulesHtml = `<div style="margin-bottom: 12px;"><strong style="color: #5865F2; font-size: 12px;">📋 Lista aktywnych paneli (${ticketModules.length}):</strong></div>`;
             
             ticketModules.forEach((mod, modIdx) => {
@@ -170,7 +184,7 @@ app.get('/dashboard', async (req, res) => {
                                 <button type="submit" style="background: #f23f43; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">🗑️ Usuń panel</button>
                             </form>
                         </div>
-                        <form method="POST" action="/configure-ticket" id="modForm_${g.id}_${mod.id}">
+                        <form method="POST" action="/configure-ticket" enctype="multipart/form-data" id="modForm_${g.id}_${mod.id}">
                             <input type="hidden" name="guildId" value="${g.id}">
                             <input type="hidden" name="moduleId" value="${mod.id}">
                             
@@ -186,8 +200,8 @@ app.get('/dashboard', async (req, res) => {
                             <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                             <textarea name="ticketMessage" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; height: 45px; margin-bottom: 6px;">${mod.message || ''}</textarea>
 
-                            <label style="font-size: 11px; color: #dbdee1;">Link do obrazka / bannera (opcjonalnie):</label>
-                            <input type="text" name="ticketImage" value="${(mod.image || '').replace(/"/g, '&quot;')}" placeholder="https://imgur.com/... (link bezpośredni)" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
+                            <label style="font-size: 11px; color: #dbdee1;">Wgraj nowy obrazek / banner z komputera (opcjonalnie):</label>
+                            <input type="file" name="ticketImageFile" accept="image/*" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 10px; margin-bottom: 6px;">
 
                             <label style="font-size: 11px; color: #dbdee1; font-weight:bold; display:block; margin-top:5px;">Kategorie i pytania:</label>
                             <div id="cats_${g.id}_${mod.id}"></div>
@@ -241,7 +255,7 @@ app.get('/dashboard', async (req, res) => {
 
             serversHtml += `
                 <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na serwerze</p>
-                <form method="POST" action="/configure-ticket" id="newModForm_${g.id}" style="background: #222428; padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px dashed #5865F2;">
+                <form method="POST" action="/configure-ticket" enctype="multipart/form-data" id="newModForm_${g.id}" style="background: #222428; padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px dashed #5865F2;">
                     <strong style="color: #5865F2; font-size: 12px; display:block; margin-bottom:6px;">➕ Stwórz nowy panel ticketów</strong>
                     <input type="hidden" name="guildId" value="${g.id}">
                     <label style="font-size: 10px; color: #dbdee1;">Kanał nowego panelu:</label>
@@ -282,7 +296,6 @@ clientInstance = client;
 client.once('ready', async () => {
     console.log(`Zalogowano jako ${client.user.tag}!`);
 
-    // Prawidłowa rejestracja globalnych komend /ticket oraz /weryfikacja
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     const commands = [
         new SlashCommandBuilder()
@@ -307,6 +320,11 @@ client.once('ready', async () => {
                     .setRequired(true)
                     .addChannelTypes(ChannelType.GuildText)
             )
+            .addRoleOption(option =>
+                option.setName('rola_po_weryfikacji')
+                    .setDescription('Rola nadawana po udanej weryfikacji')
+                    .setRequired(true)
+            )
             .addChannelOption(option =>
                 option.setName('kanal_po_weryfikacji')
                     .setDescription('Kanał docelowy po weryfikacji (opcjonalnie)')
@@ -323,7 +341,6 @@ client.once('ready', async () => {
     }
 });
 
-// Automatyczne nadawanie roli Niezweryfikowany przy dołączeniu
 client.on('guildMemberAdd', async member => {
     try {
         let unverifiedRole = member.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
