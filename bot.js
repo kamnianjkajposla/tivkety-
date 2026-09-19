@@ -110,7 +110,7 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
-// Endpoint konfiguracji (obsługa linków URL do obrazków)
+// Endpoint konfiguracji paneli (bez obrazków)
 app.post('/configure-ticket', async (req, res) => {
     if (!req.session.loggedIn || !req.session.user) return res.redirect('/');
     const guildId = req.body.guildId;
@@ -129,7 +129,6 @@ app.post('/configure-ticket', async (req, res) => {
             channelId: req.body.ticketChannelId || '',
             title: '🎫 Centrum Pomocy',
             message: 'Kliknij przycisk poniżej, aby otworzyć zgłoszenie.',
-            image: req.body.ticketImageURL || '',
             supportRoles: [],
             categories: [{ name: 'Ogólne', questions: ['Opisz swój problem:'] }]
         };
@@ -140,7 +139,6 @@ app.post('/configure-ticket', async (req, res) => {
             targetModule.channelId = req.body.ticketChannelId || targetModule.channelId;
             targetModule.title = req.body.ticketTitle || targetModule.title;
             targetModule.message = req.body.ticketMessage || targetModule.message;
-            targetModule.image = req.body.ticketImageURL || '';
             
             let roles = req.body.supportRoles;
             targetModule.supportRoles = Array.isArray(roles) ? roles : (roles ? [roles] : []);
@@ -220,7 +218,6 @@ app.get('/dashboard', async (req, res) => {
                 });
 
                 let chSelect = channelOptions.replace(`value="${mod.channelId}"`, `value="${mod.channelId}" selected`);
-                let imageUrlVal = mod.image || '';
 
                 let categoriesGrouped = [];
                 (mod.categories || []).forEach((cat, cIdx) => {
@@ -258,9 +255,6 @@ app.get('/dashboard', async (req, res) => {
 
                             <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                             <textarea name="ticketMessage" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; height: 45px; margin-bottom: 6px;">${mod.message || ''}</textarea>
-
-                            <label style="font-size: 11px; color: #dbdee1;">Link URL do obrazka (np. https://imgur.com/...):</label>
-                            <input type="url" name="ticketImageURL" value="${imageUrlVal}" placeholder="https://..." style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
 
                             <label style="font-size: 11px; color: #dbdee1; font-weight:bold; display:block; margin-top:5px;">Kategorie i pytania:</label>
                             <div id="cats_${g.id}_${mod.id}"></div>
@@ -411,10 +405,6 @@ client.on('interactionCreate', async interaction => {
                     .setTitle(mod.title || 'Centrum Pomocy')
                     .setDescription(mod.message || 'Kliknij przycisk poniżej, aby otworzyć ticket.')
                     .setColor('#5865F2');
-
-                if (mod.image && mod.image.trim() !== '') {
-                    embed.setImage(mod.image.trim());
-                }
 
                 const row = new ActionRowBuilder().addComponents(
                     new ButtonBuilder()
