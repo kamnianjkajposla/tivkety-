@@ -6,7 +6,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
         if (!req.session || !req.session.loggedIn) return res.redirect('/');
         
         try {
-            const { guildId, ticketChannelId, ticketTitle, ticketMessage, ticketImage, moduleId } = req.body;
+            const { guildId, ticketChannelId, ticketTitle, ticketMessage, ticketImageText, moduleId } = req.body;
             let supportRoles = req.body.supportRoles || [];
             if (!Array.isArray(supportRoles)) supportRoles = [supportRoles];
 
@@ -62,6 +62,9 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             let ticketModules = config.ticketModules || [];
             if (!Array.isArray(ticketModules)) ticketModules = [];
 
+            const existingModule = ticketModules.find(m => m.id === currentModuleId);
+            let finalImage = ticketImageText || (existingModule ? existingModule.image : '');
+
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId(`ticket_select_${currentModuleId}`)
                 .setPlaceholder('Wybierz kategorię zgłoszenia...')
@@ -76,13 +79,12 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             const row = new ActionRowBuilder().addComponents(selectMenu);
             const contentText = `${ticketTitle || '**System Zgłoszeń**'}\n${ticketMessage || 'Wybierz kategorię zgłoszenia z menu poniżej:'}`;
             
-            // Obsługa obrazka w wiadomości
             const messagePayload = {
                 content: contentText,
                 components: [row]
             };
-            if (ticketImage && ticketImage.trim().length > 0) {
-                messagePayload.files = [ticketImage.trim()];
+            if (finalImage && finalImage.trim().length > 0) {
+                messagePayload.files = [finalImage.trim()];
             }
 
             const existingModuleIndex = ticketModules.findIndex(m => m.id === currentModuleId);
@@ -110,7 +112,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 supportRoles: supportRoles,
                 title: ticketTitle || '**System Zgłoszeń**',
                 message: ticketMessage || 'Wybierz kategorię:',
-                image: ticketImage || '',
+                image: finalImage,
                 categories: categories,
                 messageId: msgSentId
             };
@@ -155,7 +157,6 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
         const config = await getServerConfig(interaction.guild.id);
         const ticketModules = config.ticketModules || [];
 
-        // Obsługa Komend Ukośnika (Slash Commands)
         if (interaction.isChatInputCommand()) {
             if (interaction.commandName === 'ticket') {
                 const subCommand = interaction.options.getSubcommand();
@@ -198,10 +199,12 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
 
                 const channel = interaction.options.getChannel('kanal');
                 const targetChannel = interaction.options.getChannel('kanal_po_weryfikacji');
+                const verifiedRole = interaction.options.getRole('rola_po_weryfikacji');
 
                 config.verification = {
                     channelId: channel.id,
-                    targetChannelId: targetChannel ? targetChannel.id : null
+                    targetChannelId: targetChannel ? targetChannel.id : null,
+                    verifiedRoleId: verifiedRole ? verifiedRole.id : null
                 };
                 await saveServerConfig(interaction.guild.id, config);
 
@@ -214,7 +217,7 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
                     components: [verifyButton]
                 });
 
-                return await interaction.reply({ content: `✅ Pomyślnie skonfigurowano weryfikację na kanale ${channel}!`, ephemeral: true });
+                return await interaction.reply({ content: `✅ Pomyślnie skonfigurowano weryfikację na kanale ${channel} (Rola nadawana: ${verifiedRole ? verifiedRole.name : 'brak'})!`, ephemeral: true });
             }
         }
 
@@ -229,7 +232,6 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
             }
         }
 
-        // 1. Wybór kategorii z menu ticketów
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
             const moduleId = interaction.customId.replace('ticket_select_', '');
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
@@ -262,7 +264,6 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
             return await interaction.showModal(modal);
         }
 
-        // 2. Obsługa odpowiedzi z modalu (wieloetapowe pytania)
         if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
             const parts = interaction.customId.split('_');
             const moduleId = parts[2];
@@ -359,14 +360,21 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
             return await interaction.editReply({ content: `✅ Utworzono Twój stały ticket: ${ticketChannel}!` });
         }
 
-        // 3. Obsługa przycisków
         if (interaction.isButton()) {
             if (interaction.customId === 'do_verification') {
                 let unverifiedRole = interaction.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
                 if (unverifiedRole && interaction.member.roles.cache.has(unverifiedRole.id)) {
                     await interaction.member.roles.remove(unverifiedRole.id);
                 }
-                return await interaction.reply({ content: '✅ Pomyślnie zweryfikowano! Masz teraz dostęp do serwera.', ephemeral: true });
+
+                if (config.verification && config.verification.verifiedRoleId) {
+                    let verifiedRole = interaction.guild.roles.cache.get(config.verification.verifiedRoleId);
+                    if (verifiedRole) {
+                        await interaction.member.roles.add(verifiedRole.id);
+                    }
+                }
+
+                return await interaction.reply({ content: '✅ Pomyślnie zweryfikowano! Masz teraz pełny dostęp do serwera.', ephemeral: true });
             }
 
             if (interaction.customId === 'claim_ticket') {
