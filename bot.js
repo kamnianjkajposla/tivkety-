@@ -52,7 +52,6 @@ app.set('trust proxy', 1);
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 app.use(express.json());
 
-// Wydłużona sesja zapamiętująca użytkownika i komputer na 30 dni (bez ponownego pytania o autoryzację)
 app.use(session({
     secret: CONFIG.SESSION_SECRET,
     resave: true,
@@ -60,12 +59,11 @@ app.use(session({
     proxy: true,
     cookie: { 
         secure: true, 
-        maxAge: 30 * 24 * 60 * 60 * 1000 // 30 dni zapamiętywania z danego komputera
+        maxAge: 30 * 24 * 60 * 60 * 1000 // Zapamiętywanie na 30 dni bez ponownego autoryzowania
     }
 }));
 
 app.get('/', (req, res) => {
-    // Jeśli sesja jest zapamiętana, od razu przekierowuje do panelu bez ponownego logowania/autoryzacji
     if (req.session.loggedIn && req.session.user) return res.redirect('/dashboard');
 
     const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
@@ -101,7 +99,6 @@ app.get('/auth/discord/callback', async (req, res) => {
         const guildsRes = await fetch('https://discord.com/api/users/@me/guilds', { headers: { authorization: `Bearer ${tokenData.access_token}` } });
         const guildsData = await guildsRes.json();
 
-        // Zapisujemy dane do ciasteczka sesyjnego trwającego 30 dni
         req.session.loggedIn = true;
         req.session.user = userData;
         req.session.userGuilds = Array.isArray(guildsData) ? guildsData : [];
@@ -122,7 +119,6 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/dashboard', async (req, res) => {
-    // Sprawdzanie czy użytkownik ma zapisane ciasteczko sesji
     if (!req.session.loggedIn || !req.session.user) return res.redirect('/');
     if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia... Odśwież za chwilę.');
 
@@ -168,7 +164,6 @@ app.get('/dashboard', async (req, res) => {
 
                 let chSelect = channelOptions.replace(`value="${mod.channelId}"`, `value="${mod.channelId}" selected`);
 
-                // Przygotowanie płaskiej listy do renderowania kategorii oraz wielu pytań w każdej z nich
                 let categoriesFlattened = [];
                 let catIndexCounter = 0;
                 (mod.categories || []).forEach(cat => {
@@ -226,22 +221,26 @@ app.get('/dashboard', async (req, res) => {
                                         const d = document.createElement('div');
                                         d.style.cssText = 'background: #1e1f22; padding: 6px; border-radius: 4px; margin-bottom: 5px; border: 1px solid #383a40;';
                                         d.innerHTML = \`
-                                            <div style="display:flex; justify-content:space-between; margin-bottom:3px;"><span style="font-size:10px; color:#5865F2;">Kat. ID: \${item.cIndex + 1}</span><button type="button" onclick="window.remItem_${g.id}_${mod.id}(\${idx})" style="background:#f23f43; color:#fff; border:none; padding:1px 4px; border-radius:2px; font-size:9px; cursor:pointer;">X</button></div>
+                                            <div style="display:flex; justify-content:space-between; margin-bottom:3px;"><span style="font-size:10px; color:#5865F2;">Kat. ID: \${Number(item.cIndex) + 1}</span><button type="button" onclick="window.remItem_${g.id}_${mod.id}(\${idx})" style="background:#f23f43; color:#fff; border:none; padding:1px 4px; border-radius:2px; font-size:9px; cursor:pointer;">X</button></div>
                                             <input type="hidden" name="catIndex[]" value="\${item.cIndex}" form="modForm_${g.id}_${mod.id}">
-                                            <input type="text" name="catName[]" value="\${item.name.replace(/"/g, '&quot;')}" required form="modForm_${g.id}_${mod.id}" placeholder="Nazwa kategorii w menu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; margin-bottom:3px;">
-                                            <textarea name="catQuestion[]" required form="modForm_${g.id}_${mod.id}" placeholder="Treść pytania w formularzu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; height:35px;">\${item.question}</textarea>
+                                            <input type="text" name="catName[]" value="\${(item.name || '').replace(/"/g, '&quot;')}" required form="modForm_${g.id}_${mod.id}" placeholder="Nazwa kategorii w menu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; margin-bottom:3px;">
+                                            <textarea name="catQuestion[]" required form="modForm_${g.id}_${mod.id}" placeholder="Treść pytania w formularzu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; height:35px;">\${item.question || ''}</textarea>
                                         \`;
                                         container.appendChild(d);
                                     });
                                 };
                                 window.addCat_${g.id}_${mod.id} = function() { 
-                                    const maxC = flatItems.length > 0 ? Math.max(...flatItems.map(i => i.cIndex)) + 1 : 0;
+                                    const maxC = flatItems.length > 0 ? Math.max(...flatItems.map(i => Number(i.cIndex))) + 1 : 0;
                                     flatItems.push({ cIndex: maxC, name: '', question: '' }); 
                                     window.renderCats_${g.id}_${mod.id}(); 
                                 };
                                 window.addQ_${g.id}_${mod.id} = function() { 
-                                    const last = flatItems.length > 0 ? flatItems[flatItems.length - 1] : { cIndex: 0, name: 'Pomoc' };
-                                    flatItems.push({ cIndex: last.cIndex, name: last.name, question: '' }); 
+                                    if (flatItems.length === 0) {
+                                        flatItems.push({ cIndex: 0, name: 'Pomoc', question: '' });
+                                    } else {
+                                        const last = flatItems[flatItems.length - 1];
+                                        flatItems.push({ cIndex: last.cIndex, name: last.name, question: '' });
+                                    }
                                     window.renderCats_${g.id}_${mod.id}(); 
                                 };
                                 window.remItem_${g.id}_${mod.id} = function(i) { flatItems.splice(i,1); window.renderCats_${g.id}_${mod.id}(); };
