@@ -6,21 +6,18 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
         if (!req.session || !req.session.loggedIn) return res.redirect('/');
         
         try {
-            const { guildId, ticketChannelId, ticketTitle, ticketMessage } = req.body;
+            const { guildId, ticketChannelId, ticketTitle, ticketMessage, moduleId } = req.body;
             let supportRoles = req.body.supportRoles || [];
             if (!Array.isArray(supportRoles)) supportRoles = [supportRoles];
 
             const client = typeof getClient === 'function' ? getClient() : getClient;
-            
-            if (!client) {
-                return res.status(500).send('Bot nie jest jeszcze gotowy. <a href="/dashboard">Wróć</a>');
-            }
+            if (!client) return res.status(500).send('Bot nie jest gotowy. <a href="/dashboard">Wróć</a>');
 
             const guild = client.guilds.cache.get(guildId);
             if (!guild) return res.send('Nie znaleziono bota na serwerze. <a href="/dashboard">Wróć</a>');
 
             const channel = guild.channels.cache.get(ticketChannelId);
-            if (!channel) return res.send('Nie znaleziono wybranego kanału ticketów. <a href="/dashboard">Wróć</a>');
+            if (!channel) return res.send('Nie znaleziono kanału. <a href="/dashboard">Wróć</a>');
 
             let rawNames = req.body['catName[]'] || req.body.catName || [];
             let rawQuestions = req.body['catQuestion[]'] || req.body.catQuestion || [];
@@ -32,20 +29,22 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             for (let i = 0; i < rawNames.length; i++) {
                 const name = String(rawNames[i] || '').trim();
                 const question = String(rawQuestions[i] || 'Opisz swój problem:').trim();
-
-                if (name.length > 0) {
-                    categories.push({ name, question });
-                }
+                if (name.length > 0) categories.push({ name, question });
             }
 
             if (categories.length === 0) {
                 categories.push({ name: 'Pomoc', question: 'Opisz swój problem:' });
             }
 
+            const currentModuleId = moduleId || 'mod_' + Date.now();
             const config = await getServerConfig(guildId);
+            
+            // Obsługa wielu modułów w bazie (tablica modułów ticketów)
+            let ticketModules = config.ticketModules || [];
+            if (!Array.isArray(ticketModules)) ticketModules = [];
 
             const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId('ticket_select_category')
+                .setCustomId(`ticket_select_${currentModuleId}`)
                 .setPlaceholder('Wybierz kategorię zgłoszenia...')
                 .addOptions(
                     categories.map((cat, idx) => ({
@@ -58,10 +57,10 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             const row = new ActionRowBuilder().addComponents(selectMenu);
             const contentText = `${ticketTitle || '**System Zgłoszeń**'}\n${ticketMessage || 'Wybierz kategorię zgłoszenia z menu poniżej:'}`;
 
-            let msgSentId = config.ticketMessageId;
+            const existingModuleIndex = ticketModules.findIndex(m => m.id === currentModuleId);
+            let msgSentId = existingModuleIndex !== -1 ? ticketModules[existingModuleIndex].messageId : null;
             let msgEdited = false;
 
-            // Próba edycji istniejącej wiadomości, zamiast wysyłania nowej
             if (msgSentId) {
                 try {
                     const oldMsg = await channel.messages.fetch(msgSentId);
@@ -70,7 +69,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                         msgEdited = true;
                     }
                 } catch (e) {
-                    // Wiadomość mogła zostać usunięta ręcznie, wyślij nową w takim przypadku
+                    // Wiadomość mogła zostać usunięta
                 }
             }
 
@@ -79,46 +78,73 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 msgSentId = newMsg.id;
             }
 
-            await saveServerConfig(guildId, { 
-                ticketChannel: ticketChannelId, 
-                supportRoles: supportRoles, 
-                ticketTitle: ticketTitle || '**System Zgłoszeń**', 
-                ticketMessage: ticketMessage || 'Wybierz kategorię:',
-                ticketCategories: categories,
-                ticketMessageId: msgSentId
-            });
+            const moduleData = {
+                id: currentModuleId,
+                channelId: ticketChannelId,
+                supportRoles: supportRoles,
+                title: ticketTitle || '**System Zgłoszeń**',
+                message: ticketMessage || 'Wybierz kategorię:',
+                categories: categories,
+                messageId: msgSentId
+            };
+
+            if (existingModuleIndex !== -1) {
+                ticketModules[existingModuleIndex] = moduleData;
+            } else {
+                ticketModules.push(moduleData);
+            }
+
+            await saveServerConfig(guildId, { ticketModules });
 
             res.send(`
                 <div style="font-family: Arial, sans-serif; background: #313338; color: #fff; text-align: center; padding: 50px;">
-                    <h2 style="color: #23a55a;">✅ Panel ticketów został pomyślnie zaktualizowany! (Edytowano istniejący)</h2>
+                    <h2 style="color: #23a55a;">✅ Moduł ticketów został pomyślnie zapisany/zaktualizowany!</h2>
                     <a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a>
                 </div>
             `);
         } catch (err) {
-            console.error('❌ BŁĄD PODCZAS ZAPISU TICKETÓW:', err);
-            res.status(500).send(`
-                <div style="font-family: Arial, sans-serif; background: #313338; color: #fff; text-align: center; padding: 50px;">
-                    <h2 style="color: #f23f43;">❌ Wystąpił błąd podczas zapisywania!</h2>
-                    <p style="color: #b5bac1;">${err.message}</p>
-                    <a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a>
-                </div>
-            `);
+            console.error('Błąd zapisu modułu ticketów:', err);
+            res.status(500).send(`Wystąpił błąd: ${err.message}. <a href="/dashboard">Wróć</a>`);
+        }
+    });
+
+    // Usunięcie modułu
+    app.post('/delete-ticket-module', async (req, res) => {
+        if (!req.session || !req.session.loggedIn) return res.redirect('/');
+        try {
+            const { guildId, moduleId } = req.body;
+            const config = await getServerConfig(guildId);
+            let ticketModules = config.ticketModules || [];
+            
+            ticketModules = ticketModules.filter(m => m.id !== moduleId);
+            await saveServerConfig(guildId, { ticketModules });
+
+            res.redirect('/dashboard');
+        } catch (err) {
+            console.error(err);
+            res.redirect('/dashboard');
         }
     });
 }
 
 async function handleTicketInteraction(interaction, getServerConfig) {
     try {
-        if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_category') {
+        const config = await getServerConfig(interaction.guild.id);
+        const ticketModules = config.ticketModules || [];
+
+        // Obsługa menu wyboru kategorii dla dowolnego modułu
+        if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
+            const moduleId = interaction.customId.replace('ticket_select_', '');
+            const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
+            if (!currentModule) return interaction.reply({ content: 'Nie znaleziono konfiguracji tego panelu.', ephemeral: true });
+
             const selectedValue = interaction.values[0];
             const catIndex = parseInt(selectedValue.split('_')[1]);
-
-            const config = await getServerConfig(interaction.guild.id);
-            const categories = config.ticketCategories || [];
+            const categories = currentModule.categories || [];
             const category = categories[catIndex] || { name: 'Ogólne', question: 'Opisz swoją sprawę:' };
 
             const modal = new ModalBuilder()
-                .setCustomId(`ticket_modal_${catIndex}`)
+                .setCustomId(`ticket_modal_${moduleId}_${catIndex}`)
                 .setTitle(`Zgłoszenie: ${category.name}`.substring(0, 45));
 
             const answerInput = new TextInputBuilder()
@@ -131,12 +157,16 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             await interaction.showModal(modal);
         }
 
+        // Obsługa wysłania modalu (tworzenie kanału ticketu)
         if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
-            const catIndex = parseInt(interaction.customId.split('_')[2]);
-            const config = await getServerConfig(interaction.guild.id);
-            const categories = config.ticketCategories || [];
-            const category = categories[catIndex] || { name: 'Zgłoszenie' };
-            
+            const parts = interaction.customId.split('_');
+            const moduleId = parts[2];
+            const catIndex = parseInt(parts[3]);
+
+            const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
+            if (!currentModule) return interaction.reply({ content: 'Błąd konfiguracji modułu.', ephemeral: true });
+
+            const category = currentModule.categories[catIndex] || { name: 'Zgłoszenie' };
             const userAnswer = interaction.fields.getTextInputValue('ticket_user_answer');
             const guild = interaction.guild;
             const user = interaction.user;
@@ -149,7 +179,7 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                 { id: interaction.client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageChannels] }
             ];
 
-            const supportRoles = config.supportRoles || [];
+            const supportRoles = currentModule.supportRoles || [];
             supportRoles.forEach(roleId => {
                 if (guild.roles.cache.has(roleId)) {
                     overwrites.push({
@@ -173,19 +203,26 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             );
 
             await ticketChannel.send({
-                content: `Witaj ${user}!\n**Kategoria:** ${category.name}\n**Odpowiedź na pytanie:**\n> ${userAnswer}\n\n*Powiadomiono obsługę:* ${supportMentions || 'Brak ról'}`,
+                content: `Witaj ${user}!\n**Moduł:** ${currentModule.title}\n**Kategoria:** ${category.name}\n**Opis:**\n> ${userAnswer}\n\n*Obsługa:* ${supportMentions || 'Brak ról'}`,
                 components: [actionRow]
             });
 
             await interaction.editReply({ content: `Utworzono Twój ticket: ${ticketChannel}!` });
         }
 
+        // Przyciski obsługi ticketu (Przejmij / Zamknij)
         if (interaction.isButton()) {
             if (interaction.customId === 'claim_ticket') {
-                const config = await getServerConfig(interaction.guild.id);
-                const supportRoles = config.supportRoles || [];
-                const hasRole = supportRoles.some(roleId => interaction.member.roles.cache.has(roleId));
-                const isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator) || hasRole;
+                // Sprawdzenie czy użytkownik ma uprawnienia z któregokolwiek modułu
+                let isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
+                if (!isSupport) {
+                    for (const mod of ticketModules) {
+                        if (mod.supportRoles && mod.supportRoles.some(rId => interaction.member.roles.cache.has(rId))) {
+                            isSupport = true;
+                            break;
+                        }
+                    }
+                }
 
                 if (!isSupport) {
                     return interaction.reply({ content: 'Nie masz uprawnień do przejęcia tego ticketu!', ephemeral: true });
@@ -200,7 +237,7 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             }
         }
     } catch (err) {
-        console.error('Błąd podczas obsługi interakcji ticketu:', err);
+        console.error('Błąd interakcji ticketu:', err);
     }
 }
 
