@@ -6,7 +6,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
         if (!req.session || !req.session.loggedIn) return res.redirect('/');
         
         try {
-            const { guildId, ticketChannelId, ticketTitle, ticketMessage, moduleId } = req.body;
+            const { guildId, ticketChannelId, ticketTitle, ticketMessage, ticketImage, moduleId } = req.body;
             let supportRoles = req.body.supportRoles || [];
             if (!Array.isArray(supportRoles)) supportRoles = [supportRoles];
 
@@ -75,6 +75,15 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
             const contentText = `${ticketTitle || '**System Zgłoszeń**'}\n${ticketMessage || 'Wybierz kategorię zgłoszenia z menu poniżej:'}`;
+            
+            // Obsługa obrazka w wiadomości
+            const messagePayload = {
+                content: contentText,
+                components: [row]
+            };
+            if (ticketImage && ticketImage.trim().length > 0) {
+                messagePayload.files = [ticketImage.trim()];
+            }
 
             const existingModuleIndex = ticketModules.findIndex(m => m.id === currentModuleId);
             let msgSentId = existingModuleIndex !== -1 ? ticketModules[existingModuleIndex].messageId : null;
@@ -84,14 +93,14 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 try {
                     const oldMsg = await channel.messages.fetch(msgSentId);
                     if (oldMsg) {
-                        await oldMsg.edit({ content: contentText, components: [row] });
+                        await oldMsg.edit(messagePayload);
                         msgEdited = true;
                     }
                 } catch (e) {}
             }
 
             if (!msgEdited) {
-                const newMsg = await channel.send({ content: contentText, components: [row] });
+                const newMsg = await channel.send(messagePayload);
                 msgSentId = newMsg.id;
             }
 
@@ -101,6 +110,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 supportRoles: supportRoles,
                 title: ticketTitle || '**System Zgłoszeń**',
                 message: ticketMessage || 'Wybierz kategorię:',
+                image: ticketImage || '',
                 categories: categories,
                 messageId: msgSentId
             };
@@ -168,10 +178,15 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
                         );
 
                     const row = new ActionRowBuilder().addComponents(selectMenu);
-                    await interaction.channel.send({
+                    const payload = {
                         content: `${targetModule.title || '**System Zgłoszeń**'}\n${targetModule.message || 'Wybierz kategorię:'}`,
                         components: [row]
-                    });
+                    };
+                    if (targetModule.image && targetModule.image.trim().length > 0) {
+                        payload.files = [targetModule.image.trim()];
+                    }
+
+                    await interaction.channel.send(payload);
                     return await interaction.reply({ content: '✅ Pomyślnie wysłano panel ticketów na ten kanał!', ephemeral: true });
                 }
             }
@@ -184,7 +199,6 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
                 const channel = interaction.options.getChannel('kanal');
                 const targetChannel = interaction.options.getChannel('kanal_po_weryfikacji');
 
-                // Zapisz konfigurację weryfikacji w bazie
                 config.verification = {
                     channelId: channel.id,
                     targetChannelId: targetChannel ? targetChannel.id : null
@@ -345,7 +359,7 @@ async function handleTicketInteraction(interaction, getServerConfig, saveServerC
             return await interaction.editReply({ content: `✅ Utworzono Twój stały ticket: ${ticketChannel}!` });
         }
 
-        // 3. Obsługa przycisków (w tym weryfikacja)
+        // 3. Obsługa przycisków
         if (interaction.isButton()) {
             if (interaction.customId === 'do_verification') {
                 let unverifiedRole = interaction.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
