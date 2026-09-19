@@ -114,16 +114,16 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
-// Bezpieczna obsługa wgrywania plików przez Multer oraz wklejonego linku
+// Bezpieczna obsługa plików oraz linków z formularza
 app.post('/configure-ticket', (req, res, next) => {
     upload.single('ticketImageFile')(req, res, function (err) {
         if (err instanceof multer.MulterError) {
             if (err.code === 'LIMIT_FILE_SIZE') {
-                return res.status(400).send('<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd: Przesłany obrazek jest za duży!</h2><p>Maksymalny rozmiar pliku to 8 MB.</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a></div>');
+                return res.status(400).send('<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd: Za duży plik!</h2><p>Maksymalny rozmiar to 8 MB.</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a></div>');
             }
-            return res.status(400).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd ładowania pliku:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a></div>`);
+            return res.status(400).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd pliku:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a></div>`);
         } else if (err) {
-            return res.status(500).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Wystąpił nieznany błąd:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a></div>`);
+            return res.status(500).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd serwera:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a></div>`);
         }
 
         if (req.file) {
@@ -171,7 +171,6 @@ app.get('/dashboard', async (req, res) => {
 
                 let chSelect = channelOptions.replace(`value="${mod.channelId}"`, `value="${mod.channelId}" selected`);
 
-                // Sprawdzenie czy obrazek to Base64 czy zwykły link
                 let currentUrlVal = '';
                 let currentImgVal = mod.image || '';
                 if (currentImgVal.startsWith('http://') || currentImgVal.startsWith('https://')) {
@@ -204,7 +203,7 @@ app.get('/dashboard', async (req, res) => {
                             <input type="hidden" name="moduleId" value="${mod.id}">
                             
                             <label style="font-size: 11px; color: #dbdee1;">Kanał panelu:</label>
-                            <select name="ticketChannelId" form="modForm_${g.id}_${mod.id}" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">${chSelect}</select>
+                            <select name="ticketChannelId" required style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">${chSelect}</select>
 
                             <label style="font-size: 11px; color: #dbdee1;">Role obsługujące:</label>
                             <div style="max-height: 80px; overflow-y: auto; background: #1e1f22; padding: 5px; border-radius: 4px; margin-bottom: 6px; border: 1px solid #4e5058;">${roleCheckboxes}</div>
@@ -215,8 +214,8 @@ app.get('/dashboard', async (req, res) => {
                             <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                             <textarea name="ticketMessage" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; height: 45px; margin-bottom: 6px;">${mod.message || ''}</textarea>
 
-                            <label style="font-size: 11px; color: #dbdee1;">Wklej link do obrazka / bannera (URL):</label>
-                            <input type="url" name="ticketImageURL" value="${currentUrlVal}" placeholder="https://imgur.com/... lub bezpośredni link" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
+                            <label style="font-size: 11px; color: #dbdee1;">Wklej link do obrazka (URL):</label>
+                            <input type="url" name="ticketImageURL" value="${currentUrlVal}" placeholder="https://..." style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
 
                             <label style="font-size: 11px; color: #dbdee1;">LUB wgraj plik z komputera:</label>
                             <input type="file" name="ticketImageFile" accept="image/*" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 10px; margin-bottom: 6px;">
@@ -242,10 +241,12 @@ app.get('/dashboard', async (req, res) => {
                                         d.style.cssText = 'background: #1e1f22; padding: 6px; border-radius: 4px; margin-bottom: 5px; border: 1px solid #383a40;';
                                         d.innerHTML = \`
                                             <div style="display:flex; justify-content:space-between; margin-bottom:3px;"><span style="font-size:10px; color:#5865F2;">Kategoria ID: \${Number(item.cIndex) + 1}</span><button type="button" onclick="window.remItem_${g.id}_${mod.id}(\${idx})" style="background:#f23f43; color:#fff; border:none; padding:1px 4px; border-radius:2px; font-size:9px; cursor:pointer;">X</button></div>
-                                            <input type="hidden" name="catIndex[]" value="\${item.cIndex}" form="modForm_${g.id}_${mod.id}">
-                                            <input type="text" name="catName[]" value="\${(item.name || '').replace(/"/g, '&quot;')}" required form="modForm_${g.id}_${mod.id}" placeholder="Nazwa kategorii w menu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; margin-bottom:3px;">
-                                            <textarea name="catQuestion[]" required form="modForm_${g.id}_${mod.id}" placeholder="Treść pytania w modalu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; height:35px;">\${item.question || ''}</textarea>
+                                            <input type="hidden" name="catIndex[]" value="\${item.cIndex}">
+                                            <input type="text" name="catName[]" value="\${(item.name || '').replace(/"/g, '&quot;')}" required placeholder="Nazwa kategorii" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; margin-bottom:3px;">
+                                            <textarea name="catQuestion[]" required placeholder="Pytanie" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; height:35px;">\${item.question || ''}</textarea>
                                         \`;
+                                        const inputs = d.querySelectorAll('input, textarea');
+                                        inputs.forEach(inp => inp.setAttribute('form', 'modForm_${g.id}_${mod.id}'));
                                         container.appendChild(d);
                                     });
                                 };
@@ -277,7 +278,7 @@ app.get('/dashboard', async (req, res) => {
                     <strong style="color: #5865F2; font-size: 12px; display:block; margin-bottom:6px;">➕ Stwórz nowy panel ticketów</strong>
                     <input type="hidden" name="guildId" value="${g.id}">
                     <label style="font-size: 10px; color: #dbdee1;">Kanał nowego panelu:</label>
-                    <select name="ticketChannelId" form="newModForm_${g.id}" required style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">${channelOptions}</select>
+                    <select name="ticketChannelId" required style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">${channelOptions}</select>
                     <button type="submit" style="width:100%; background:#23a55a; color:#fff; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer; font-size:11px;">Utwórz nowy panel</button>
                 </form>
                 <div style="max-height: 500px; overflow-y: auto;">${modulesHtml}</div>
