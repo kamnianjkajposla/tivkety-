@@ -151,20 +151,22 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                     const targetModule = ticketModules.find(m => m.id === panelId) || ticketModules[0];
                     if (!targetModule) return interaction.reply({ content: '❌ Nie znaleziono żadnego aktywnego panelu ticketów.', ephemeral: true });
 
+                    const categories = Array.isArray(targetModule.categories) ? targetModule.categories : [{ name: 'Pomoc', questions: ['Opisz swój problem:'] }];
+
                     const selectMenu = new StringSelectMenuBuilder()
                         .setCustomId(`ticket_select_${targetModule.id}`)
                         .setPlaceholder('Wybierz kategorię zgłoszenia...')
                         .addOptions(
-                            targetModule.categories.map((cat, idx) => ({
-                                label: cat.name.substring(0, 25),
+                            categories.map((cat, idx) => ({
+                                label: (cat.name || 'Ogólne').substring(0, 25),
                                 value: `cat_${idx}`,
-                                description: `Otwórz zgłoszenie: ${cat.name}`.substring(0, 50)
+                                description: `Otwórz zgłoszenie: ${cat.name || 'Ogólne'}`.substring(0, 50)
                             }))
                         );
 
                     const row = new ActionRowBuilder().addComponents(selectMenu);
                     await interaction.channel.send({
-                        content: `${targetModule.title}\n${targetModule.message}`,
+                        content: `${targetModule.title || '**System Zgłoszeń**'}\n${targetModule.message || 'Wybierz kategorię:'}`,
                         components: [row]
                     });
                     return await interaction.reply({ content: '✅ Pomyślnie wysłano panel ticketów na ten kanał!', ephemeral: true });
@@ -176,27 +178,34 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             if (interaction.commandName === 'ticket') {
                 const focusedOption = interaction.options.getFocused(true);
                 if (focusedOption.name === 'panel') {
-                    const choices = ticketModules.map(m => ({ name: m.title.replace(/\*/g, ''), value: m.id }));
+                    const choices = ticketModules.map(m => ({ name: (m.title || 'Panel').replace(/\*/g, ''), value: m.id }));
                     const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase()));
                     return await interaction.respond(filtered.slice(0, 25));
                 }
             }
         }
 
-        // Wybór kategorii z menu
+        // 1. Wybór kategorii z menu
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
             const moduleId = interaction.customId.replace('ticket_select_', '');
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
             if (!currentModule) return interaction.reply({ content: '❌ Nie znaleziono konfiguracji panelu.', ephemeral: true });
 
             const selectedValue = interaction.values[0];
-            const catIndex = parseInt(selectedValue.split('_')[1]);
-            const categories = currentModule.categories || [];
-            const category = categories[catIndex] || { name: 'Ogólne', questions: ['Opisz problem:'] };
+            const catIndex = parseInt(selectedValue.split('_')[1]) || 0;
+            
+            const categories = Array.isArray(currentModule.categories) && currentModule.categories.length > 0 
+                ? currentModule.categories 
+                : [{ name: 'Ogólne', questions: ['Opisz swój problem:'] }];
+            
+            const category = categories[catIndex] || categories[0] || { name: 'Ogólne', questions: ['Opisz swój problem:'] };
+            if (!Array.isArray(category.questions) || category.questions.length === 0) {
+                category.questions = ['Opisz swój problem:'];
+            }
 
             const modal = new ModalBuilder()
                 .setCustomId(`ticket_modal_${moduleId}_${catIndex}_0`)
-                .setTitle(`Zgłoszenie: ${category.name}`.substring(0, 45));
+                .setTitle(`Zgłoszenie: ${category.name || 'Ogólne'}`.substring(0, 45));
 
             const firstQuestion = category.questions[0] || 'Opisz swój problem:';
             const answerInput = new TextInputBuilder()
@@ -209,17 +218,22 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             return await interaction.showModal(modal);
         }
 
-        // Obsługa odpowiedzi z modalu
+        // 2. Obsługa odpowiedzi z modalu (wieloetapowe pytania)
         if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
             const parts = interaction.customId.split('_');
             const moduleId = parts[2];
-            const catIndex = parseInt(parts[3]);
-            const questionIndex = parseInt(parts[4]);
+            const catIndex = parseInt(parts[3]) || 0;
+            const questionIndex = parseInt(parts[4]) || 0;
 
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
             if (!currentModule) return interaction.reply({ content: '❌ Błąd modułu.', ephemeral: true });
 
-            const category = currentModule.categories[catIndex];
+            const categories = Array.isArray(currentModule.categories) ? currentModule.categories : [{ name: 'Ogólne', questions: ['Opisz swój problem:'] }];
+            const category = categories[catIndex] || categories[0] || { name: 'Ogólne', questions: ['Opisz swój problem:'] };
+            if (!Array.isArray(category.questions) || category.questions.length === 0) {
+                category.questions = ['Opisz swój problem:'];
+            }
+
             let userAnswer = '';
             try {
                 userAnswer = interaction.fields.getTextInputValue('ticket_q_0');
@@ -294,14 +308,14 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             );
 
             await ticketChannel.send({
-                content: `Witaj ${user}!\n**Panel:** ${currentModule.title}\n**Kategoria:** ${category.name}\n\n${formattedAnswers}\n\n*Obsługa:* ${supportMentions || 'Brak ról'}`,
+                content: `Witaj ${user}!\n**Panel:** ${currentModule.title || 'Zgłoszenie'}\n**Kategoria:** ${category.name || 'Ogólne'}\n\n${formattedAnswers}\n\n*Obsługa:* ${supportMentions || 'Brak ról'}`,
                 components: [actionRow]
             });
 
             return await interaction.editReply({ content: `✅ Utworzono Twój stały ticket: ${ticketChannel}!` });
         }
 
-        // Obsługa przycisków w ticketach
+        // 3. Obsługa przycisków w ticketach
         if (interaction.isButton()) {
             if (interaction.customId === 'claim_ticket') {
                 let isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
