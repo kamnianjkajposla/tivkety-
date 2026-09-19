@@ -44,7 +44,6 @@ const CONFIG = {
     SESSION_SECRET: process.env.SESSION_SECRET || 'tajnykluczsosession123'
 };
 
-const loginHistory = [];
 let clientInstance = null;
 const app = express();
 
@@ -59,7 +58,7 @@ app.use(session({
     proxy: true,
     cookie: { 
         secure: true, 
-        maxAge: 30 * 24 * 60 * 60 * 1000 // Zapamiętywanie na 30 dni bez ponownego autoryzowania
+        maxAge: 30 * 24 * 60 * 60 * 1000 
     }
 }));
 
@@ -74,7 +73,7 @@ app.get('/', (req, res) => {
             <body>
                 <div class="card">
                     <h1>Panel Tivkety</h1>
-                    <p style="color:#949ba4; font-size:13px; margin-bottom:20px;">Trwałe sesje i zaawansowane moduły</p>
+                    <p style="color:#949ba4; font-size:13px; margin-bottom:20px;">Zarządzanie ticketami</p>
                     <a href="${discordAuthUrl}">Zaloguj przez Discord</a>
                 </div>
             </body>
@@ -102,11 +101,6 @@ app.get('/auth/discord/callback', async (req, res) => {
         req.session.loggedIn = true;
         req.session.user = userData;
         req.session.userGuilds = Array.isArray(guildsData) ? guildsData : [];
-
-        loginHistory.unshift({
-            name: `${userData.username} (#${userData.id})`,
-            time: new Date().toLocaleString('pl-PL')
-        });
 
         res.redirect('/dashboard');
     } catch (err) {
@@ -142,18 +136,6 @@ app.get('/dashboard', async (req, res) => {
             channels.forEach(c => { channelOptions += `<option value="${c.id}">#${c.name}</option>`; });
 
             let ticketModules = savedConfig.ticketModules || [];
-            if (ticketModules.length === 0 && savedConfig.ticketChannel) {
-                ticketModules.push({
-                    id: 'mod_old',
-                    channelId: savedConfig.ticketChannel,
-                    supportRoles: savedConfig.supportRoles || [],
-                    title: savedConfig.ticketTitle || '**System Zgłoszeń**',
-                    message: savedConfig.ticketMessage || 'Wybierz kategorię:',
-                    categories: (savedConfig.ticketCategories || []).map(c => ({ name: c.name, questions: [c.question || 'Opisz problem:'] })),
-                    messageId: savedConfig.ticketMessageId
-                });
-            }
-
             let modulesHtml = '';
             ticketModules.forEach((mod, modIdx) => {
                 let roleCheckboxes = '';
@@ -293,6 +275,31 @@ clientInstance = client;
 
 client.once('ready', async () => {
     console.log(`Zalogowano jako ${client.user.tag}!`);
+
+    // Rejestracja globalnej komendy /ticket z podpowiedziami (Autocomplete)
+    const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+    const commands = [
+        new SlashCommandBuilder()
+            .setName('ticket')
+            .setDescription('Zarządzanie systemem zgłoszeń')
+            .addSubcommand(sub =>
+                sub.setName('panel')
+                    .setDescription('Wysyła panel zgłoszeń na ten kanał')
+                    .addStringOption(option =>
+                        option.setName('panel')
+                            .setDescription('Wybierz panel do wysłania')
+                            .setRequired(true)
+                            .setAutocomplete(true)
+                    )
+            )
+    ];
+
+    try {
+        await rest.put(Routes.applicationCommands(CONFIG.CLIENT_ID), { body: commands });
+        console.log('✅ Pomyślnie zarejestrowano komendę /ticket z autouzupełnianiem!');
+    } catch (error) {
+        console.error('Błąd rejestracji komend:', error);
+    }
 });
 
 client.on('interactionCreate', async interaction => {
