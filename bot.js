@@ -136,7 +136,10 @@ app.get('/dashboard', async (req, res) => {
             channels.forEach(c => { channelOptions += `<option value="${c.id}">#${c.name}</option>`; });
 
             let ticketModules = savedConfig.ticketModules || [];
-            let modulesHtml = '';
+            
+            // SEKCJA LISTY PANELI ORAZ FORMULARZE EDYCJI
+            let modulesHtml = `<div style="margin-bottom: 12px;"><strong style="color: #5865F2; font-size: 12px;">📋 Lista aktywnych paneli (${ticketModules.length}):</strong></div>`;
+            
             ticketModules.forEach((mod, modIdx) => {
                 let roleCheckboxes = '';
                 roles.forEach(r => {
@@ -146,7 +149,6 @@ app.get('/dashboard', async (req, res) => {
 
                 let chSelect = channelOptions.replace(`value="${mod.channelId}"`, `value="${mod.channelId}" selected`);
 
-                // Przygotowanie płaskiej struktury do dynamicznego dodawania pytań w panelu WWW
                 let categoriesGrouped = [];
                 (mod.categories || []).forEach((cat, cIdx) => {
                     const qs = Array.isArray(cat.questions) ? cat.questions : [cat.question || 'Opisz problem:'];
@@ -159,13 +161,13 @@ app.get('/dashboard', async (req, res) => {
                 }
 
                 modulesHtml += `
-                    <div style="background: #2b2d31; padding: 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #4e5058;">
+                    <div style="background: #2b2d31; padding: 12px; border-radius: 6px; margin-bottom: 15px; border: 1px solid #4e5058;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <strong style="color: #5865F2; font-size: 13px;">Panel Ticketów #${modIdx + 1}</strong>
+                            <strong style="color: #23a55a; font-size: 13px;">Panel #${modIdx + 1}: ${(mod.title || 'Panel').replace(/\*/g, '')}</strong>
                             <form method="POST" action="/delete-ticket-module" style="margin:0;">
                                 <input type="hidden" name="guildId" value="${g.id}">
                                 <input type="hidden" name="moduleId" value="${mod.id}">
-                                <button type="submit" style="background: #f23f43; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 10px;">Usuń panel</button>
+                                <button type="submit" style="background: #f23f43; color: white; border: none; padding: 3px 8px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">🗑️ Usuń panel</button>
                             </form>
                         </div>
                         <form method="POST" action="/configure-ticket" id="modForm_${g.id}_${mod.id}">
@@ -184,6 +186,9 @@ app.get('/dashboard', async (req, res) => {
                             <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                             <textarea name="ticketMessage" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; height: 45px; margin-bottom: 6px;">${mod.message || ''}</textarea>
 
+                            <label style="font-size: 11px; color: #dbdee1;">Link do obrazka / bannera (opcjonalnie):</label>
+                            <input type="text" name="ticketImage" value="${(mod.image || '').replace(/"/g, '&quot;')}" placeholder="https://imgur.com/... (link bezpośredni)" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
+
                             <label style="font-size: 11px; color: #dbdee1; font-weight:bold; display:block; margin-top:5px;">Kategorie i pytania:</label>
                             <div id="cats_${g.id}_${mod.id}"></div>
                             
@@ -192,7 +197,7 @@ app.get('/dashboard', async (req, res) => {
                                 <button type="button" onclick="window.addQ_${g.id}_${mod.id}()" style="flex:1; background: #5865F2; color: white; border: none; padding: 5px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">+ Dodaj pytanie do kat.</button>
                             </div>
 
-                            <button type="submit" style="width: 100%; background: #23a55a; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px;">Zapisz i zaktualizuj panel</button>
+                            <button type="submit" style="width: 100%; background: #5865F2; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px;">💾 Zapisz zmiany w panelu</button>
                         </form>
                         <script>
                             (function() {
@@ -237,13 +242,13 @@ app.get('/dashboard', async (req, res) => {
             serversHtml += `
                 <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na serwerze</p>
                 <form method="POST" action="/configure-ticket" id="newModForm_${g.id}" style="background: #222428; padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px dashed #5865F2;">
-                    <strong style="color: #5865F2; font-size: 12px; display:block; margin-bottom:6px;">➕ Utwórz nowy panel ticketów</strong>
+                    <strong style="color: #5865F2; font-size: 12px; display:block; margin-bottom:6px;">➕ Stwórz nowy panel ticketów</strong>
                     <input type="hidden" name="guildId" value="${g.id}">
                     <label style="font-size: 10px; color: #dbdee1;">Kanał nowego panelu:</label>
                     <select name="ticketChannelId" form="newModForm_${g.id}" required style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">${channelOptions}</select>
-                    <button type="submit" style="width:100%; background:#5865F2; color:#fff; border:none; padding:5px; border-radius:4px; font-weight:bold; cursor:pointer; font-size:11px;">Stwórz panel</button>
+                    <button type="submit" style="width:100%; background:#23a55a; color:#fff; border:none; padding:6px; border-radius:4px; font-weight:bold; cursor:pointer; font-size:11px;">Utwórz nowy panel</button>
                 </form>
-                <div style="max-height: 400px; overflow-y: auto;">${modulesHtml}</div>
+                <div style="max-height: 500px; overflow-y: auto;">${modulesHtml}</div>
             `;
         } else {
             const inviteUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&permissions=8&scope=bot&guild_id=${g.id}&disable_guild_select=true`;
@@ -254,7 +259,7 @@ app.get('/dashboard', async (req, res) => {
 
     res.send(`
         <html>
-            <head><title>Panel Tivkety</title><style>body { font-family: Arial; background: #313338; color: #fff; padding: 20px; text-align: center; } .box { display: inline-block; background: #2b2d31; padding: 20px; border-radius: 8px; width: 550px; text-align: left; }</style></head>
+            <head><title>Panel Tivkety</title><style>body { font-family: Arial; background: #313338; color: #fff; padding: 20px; text-align: center; } .box { display: inline-block; background: #2b2d31; padding: 20px; border-radius: 8px; width: 600px; text-align: left; }</style></head>
             <body>
                 <div class="box">
                     <h2 style="color: #5865F2; text-align:center;">Panel Zarządzania (Zalogowany: ${user.username})</h2>
@@ -277,7 +282,7 @@ clientInstance = client;
 client.once('ready', async () => {
     console.log(`Zalogowano jako ${client.user.tag}!`);
 
-    // Rejestracja globalnych komend /ticket oraz /weryfikacja z podpowiedziami
+    // Prawidłowa rejestracja globalnych komend /ticket oraz /weryfikacja
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     const commands = [
         new SlashCommandBuilder()
@@ -298,7 +303,7 @@ client.once('ready', async () => {
             .setDescription('Konfiguracja systemu weryfikacji')
             .addChannelOption(option =>
                 option.setName('kanal')
-                    .setDescription('Kanał, na którym ma być panel weryfikacji')
+                    .setDescription('Kanał weryfikacji')
                     .setRequired(true)
                     .addChannelTypes(ChannelType.GuildText)
             )
@@ -332,7 +337,6 @@ client.on('guildMemberAdd', async member => {
             const config = await getServerConfig(member.guild.id);
             const verifyChannelId = config.verification ? config.verification.channelId : null;
 
-            // Zabezpieczenie kanałów: rola widzi TYLKO kanał weryfikacji
             member.guild.channels.cache.forEach(async (channel) => {
                 if (verifyChannelId && channel.id === verifyChannelId) {
                     await channel.permissionOverwrites.create(unverifiedRole, { ViewChannel: true, SendMessages: true });
