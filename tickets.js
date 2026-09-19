@@ -2,7 +2,6 @@ const { ActionRowBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilde
 
 function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
     
-    // Obsługa zapisu konfiguracji ticketów z panelu WWW
     app.post('/configure-ticket', async (req, res) => {
         if (!req.session || !req.session.loggedIn) return res.redirect('/');
         
@@ -23,7 +22,6 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
             const channel = guild.channels.cache.get(ticketChannelId);
             if (!channel) return res.send('Nie znaleziono wybranego kanału ticketów. <a href="/dashboard">Wróć</a>');
 
-            // --- BEZPIECZNE PARSOWANIE KATEGORII (PZapobiega crashom Bad Gateway) ---
             let rawNames = req.body['catName[]'] || req.body.catName || [];
             let rawQuestions = req.body['catQuestion[]'] || req.body.catQuestion || [];
 
@@ -40,22 +38,11 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 }
             }
 
-            // Domyślna kategoria, jeśli użytkownik wszystko usunął
             if (categories.length === 0) {
                 categories.push({ name: 'Pomoc', question: 'Opisz swój problem:' });
             }
 
             const config = await getServerConfig(guildId);
-
-            // Usunięcie starej wiadomości panelu, jeśli istnieje
-            if (config.ticketMessageId) {
-                try {
-                    const oldMsg = await channel.messages.fetch(config.ticketMessageId);
-                    if (oldMsg) await oldMsg.delete();
-                } catch (e) {
-                    // Ignoruj jeśli wiadomość została usunięta ręcznie
-                }
-            }
 
             const selectMenu = new StringSelectMenuBuilder()
                 .setCustomId('ticket_select_category')
@@ -69,10 +56,28 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 );
 
             const row = new ActionRowBuilder().addComponents(selectMenu);
-            const msgSent = await channel.send({ 
-                content: `${ticketTitle || '**System Zgłoszeń**'}\n${ticketMessage || 'Wybierz kategorię zgłoszenia z menu poniżej:'}`, 
-                components: [row] 
-            });
+            const contentText = `${ticketTitle || '**System Zgłoszeń**'}\n${ticketMessage || 'Wybierz kategorię zgłoszenia z menu poniżej:'}`;
+
+            let msgSentId = config.ticketMessageId;
+            let msgEdited = false;
+
+            // Próba edycji istniejącej wiadomości, zamiast wysyłania nowej
+            if (msgSentId) {
+                try {
+                    const oldMsg = await channel.messages.fetch(msgSentId);
+                    if (oldMsg) {
+                        await oldMsg.edit({ content: contentText, components: [row] });
+                        msgEdited = true;
+                    }
+                } catch (e) {
+                    // Wiadomość mogła zostać usunięta ręcznie, wyślij nową w takim przypadku
+                }
+            }
+
+            if (!msgEdited) {
+                const newMsg = await channel.send({ content: contentText, components: [row] });
+                msgSentId = newMsg.id;
+            }
 
             await saveServerConfig(guildId, { 
                 ticketChannel: ticketChannelId, 
@@ -80,12 +85,12 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 ticketTitle: ticketTitle || '**System Zgłoszeń**', 
                 ticketMessage: ticketMessage || 'Wybierz kategorię:',
                 ticketCategories: categories,
-                ticketMessageId: msgSent.id
+                ticketMessageId: msgSentId
             });
 
             res.send(`
                 <div style="font-family: Arial, sans-serif; background: #313338; color: #fff; text-align: center; padding: 50px;">
-                    <h2 style="color: #23a55a;">✅ Panel ticketów został pomyślnie zaktualizowany!</h2>
+                    <h2 style="color: #23a55a;">✅ Panel ticketów został pomyślnie zaktualizowany! (Edytowano istniejący)</h2>
                     <a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a>
                 </div>
             `);
@@ -102,7 +107,6 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
     });
 }
 
-// Obsługa interakcji na Discordzie
 async function handleTicketInteraction(interaction, getServerConfig) {
     try {
         if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_select_category') {
