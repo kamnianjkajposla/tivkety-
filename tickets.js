@@ -33,9 +33,12 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 const question = String(rawQuestions[i] || '').trim();
                 const cIndex = rawCatIndices[i] !== undefined ? String(rawCatIndices[i]) : '0';
 
-                if (name.length > 0) {
+                if (name.length > 0 || question.length > 0) {
                     if (!categoriesMap[cIndex]) {
-                        categoriesMap[cIndex] = { name, questions: [] };
+                        categoriesMap[cIndex] = { name: name || 'Kategoria', questions: [] };
+                    }
+                    if (name.length > 0) {
+                        categoriesMap[cIndex].name = name;
                     }
                     if (question.length > 0) {
                         categoriesMap[cIndex].questions.push(question);
@@ -64,9 +67,9 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
                 .setPlaceholder('Wybierz kategorię zgłoszenia...')
                 .addOptions(
                     categories.map((cat, idx) => ({
-                        label: cat.name.substring(0, 25),
+                        label: (cat.name || 'Pomoc').substring(0, 25),
                         value: `cat_${idx}`,
-                        description: `Otwórz zgłoszenie: ${cat.name}`.substring(0, 50)
+                        description: `Otwórz zgłoszenie: ${cat.name || 'Pomoc'}`.substring(0, 50)
                     }))
                 );
 
@@ -112,7 +115,7 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
 
             res.send(`
                 <div style="font-family: Arial, sans-serif; background: #313338; color: #fff; text-align: center; padding: 50px;">
-                    <h2 style="color: #23a55a;">✅ Stały panel ticketów został pomyślnie zaktualizowany!</h2>
+                    <h2 style="color: #23a55a;">✅ Panel ticketów został pomyślnie zapisany i zaktualizowany!</h2>
                     <a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć do panelu</a>
                 </div>
             `);
@@ -137,12 +140,12 @@ function setupTicketsRouter(app, getServerConfig, saveServerConfig, getClient) {
     });
 }
 
-async function handleTicketInteraction(interaction, getServerConfig) {
+async function handleTicketInteraction(interaction, getServerConfig, saveServerConfig) {
     try {
         const config = await getServerConfig(interaction.guild.id);
         const ticketModules = config.ticketModules || [];
 
-        // Obsługa Komend Ukośnika (Slash Commands) oraz podpowiedzi (Autocomplete)
+        // Obsługa Komend Ukośnika (Slash Commands)
         if (interaction.isChatInputCommand()) {
             if (interaction.commandName === 'ticket') {
                 const subCommand = interaction.options.getSubcommand();
@@ -172,6 +175,33 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                     return await interaction.reply({ content: '✅ Pomyślnie wysłano panel ticketów na ten kanał!', ephemeral: true });
                 }
             }
+
+            if (interaction.commandName === 'weryfikacja') {
+                if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return interaction.reply({ content: '❌ Wymagane uprawnienie Administratora!', ephemeral: true });
+                }
+
+                const channel = interaction.options.getChannel('kanal');
+                const targetChannel = interaction.options.getChannel('kanal_po_weryfikacji');
+
+                // Zapisz konfigurację weryfikacji w bazie
+                config.verification = {
+                    channelId: channel.id,
+                    targetChannelId: targetChannel ? targetChannel.id : null
+                };
+                await saveServerConfig(interaction.guild.id, config);
+
+                const verifyButton = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('do_verification').setLabel('Zweryfikuj się ✅').setStyle(ButtonStyle.Success)
+                );
+
+                await channel.send({
+                    content: '**Weryfikacja Serwera**\nKliknij przycisk poniżej, aby uzyskać pełny dostęp do serwera!',
+                    components: [verifyButton]
+                });
+
+                return await interaction.reply({ content: `✅ Pomyślnie skonfigurowano weryfikację na kanale ${channel}!`, ephemeral: true });
+            }
         }
 
         if (interaction.isAutocomplete()) {
@@ -185,7 +215,7 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             }
         }
 
-        // 1. Wybór kategorii z menu
+        // 1. Wybór kategorii z menu ticketów
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
             const moduleId = interaction.customId.replace('ticket_select_', '');
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
@@ -315,8 +345,16 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             return await interaction.editReply({ content: `✅ Utworzono Twój stały ticket: ${ticketChannel}!` });
         }
 
-        // 3. Obsługa przycisków w ticketach
+        // 3. Obsługa przycisków (w tym weryfikacja)
         if (interaction.isButton()) {
+            if (interaction.customId === 'do_verification') {
+                let unverifiedRole = interaction.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
+                if (unverifiedRole && interaction.member.roles.cache.has(unverifiedRole.id)) {
+                    await interaction.member.roles.remove(unverifiedRole.id);
+                }
+                return await interaction.reply({ content: '✅ Pomyślnie zweryfikowano! Masz teraz dostęp do serwera.', ephemeral: true });
+            }
+
             if (interaction.customId === 'claim_ticket') {
                 let isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
                 if (!isSupport) {
@@ -337,7 +375,7 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             }
         }
     } catch (err) {
-        console.error('Błąd interakcji ticketu:', err);
+        console.error('Błąd interakcji:', err);
         try {
             if (interaction.deferred || interaction.replied) {
                 await interaction.editReply({ content: `❌ Wystąpił błąd: ${err.message}` });
