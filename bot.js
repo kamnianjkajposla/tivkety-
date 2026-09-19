@@ -73,7 +73,7 @@ app.get('/', (req, res) => {
             <body>
                 <div class="card">
                     <h1>Panel Tivkety</h1>
-                    <p style="color:#949ba4; font-size:13px; margin-bottom:20px;">Zarządzanie ticketami</p>
+                    <p style="color:#949ba4; font-size:13px; margin-bottom:20px;">Zarządzanie ticketami i weryfikacją</p>
                     <a href="${discordAuthUrl}">Zaloguj przez Discord</a>
                 </div>
             </body>
@@ -146,23 +146,22 @@ app.get('/dashboard', async (req, res) => {
 
                 let chSelect = channelOptions.replace(`value="${mod.channelId}"`, `value="${mod.channelId}" selected`);
 
-                let categoriesFlattened = [];
-                let catIndexCounter = 0;
-                (mod.categories || []).forEach(cat => {
+                // Przygotowanie płaskiej struktury do dynamicznego dodawania pytań w panelu WWW
+                let categoriesGrouped = [];
+                (mod.categories || []).forEach((cat, cIdx) => {
                     const qs = Array.isArray(cat.questions) ? cat.questions : [cat.question || 'Opisz problem:'];
                     qs.forEach(q => {
-                        categoriesFlattened.push({ cIndex: catIndexCounter, name: cat.name, question: q });
+                        categoriesGrouped.push({ cIndex: cIdx, name: cat.name, question: q });
                     });
-                    catIndexCounter++;
                 });
-                if (categoriesFlattened.length === 0) {
-                    categoriesFlattened.push({ cIndex: 0, name: 'Pomoc', question: 'Opisz problem:' });
+                if (categoriesGrouped.length === 0) {
+                    categoriesGrouped.push({ cIndex: 0, name: 'Pomoc', question: 'Opisz problem:' });
                 }
 
                 modulesHtml += `
                     <div style="background: #2b2d31; padding: 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #4e5058;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <strong style="color: #5865F2; font-size: 13px;">Stały Panel #${modIdx + 1}</strong>
+                            <strong style="color: #5865F2; font-size: 13px;">Panel Ticketów #${modIdx + 1}</strong>
                             <form method="POST" action="/delete-ticket-module" style="margin:0;">
                                 <input type="hidden" name="guildId" value="${g.id}">
                                 <input type="hidden" name="moduleId" value="${mod.id}">
@@ -179,23 +178,25 @@ app.get('/dashboard', async (req, res) => {
                             <label style="font-size: 11px; color: #dbdee1;">Role obsługujące:</label>
                             <div style="max-height: 80px; overflow-y: auto; background: #1e1f22; padding: 5px; border-radius: 4px; margin-bottom: 6px; border: 1px solid #4e5058;">${roleCheckboxes}</div>
 
-                            <label style="font-size: 11px; color: #dbdee1;">Nagłówek:</label>
+                            <label style="font-size: 11px; color: #dbdee1;">Nagłówek panelu:</label>
                             <input type="text" name="ticketTitle" value="${(mod.title || '').replace(/"/g, '&quot;')}" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
 
                             <label style="font-size: 11px; color: #dbdee1;">Treść wiadomości:</label>
                             <textarea name="ticketMessage" style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; height: 45px; margin-bottom: 6px;">${mod.message || ''}</textarea>
 
+                            <label style="font-size: 11px; color: #dbdee1; font-weight:bold; display:block; margin-top:5px;">Kategorie i pytania:</label>
                             <div id="cats_${g.id}_${mod.id}"></div>
-                            <div style="display:flex; gap:5px; margin-bottom: 8px;">
-                                <button type="button" onclick="window.addCat_${g.id}_${mod.id}()" style="flex:1; background: #23a55a; color: white; border: none; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">+ Dodaj kategorię</button>
-                                <button type="button" onclick="window.addQ_${g.id}_${mod.id}()" style="flex:1; background: #5865F2; color: white; border: none; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">+ Dodaj pytanie do ostatniej</button>
+                            
+                            <div style="display:flex; gap:5px; margin-bottom: 8px; margin-top:5px;">
+                                <button type="button" onclick="window.addCat_${g.id}_${mod.id}()" style="flex:1; background: #23a55a; color: white; border: none; padding: 5px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">+ Dodaj kategorię</button>
+                                <button type="button" onclick="window.addQ_${g.id}_${mod.id}()" style="flex:1; background: #5865F2; color: white; border: none; padding: 5px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight:bold;">+ Dodaj pytanie do kat.</button>
                             </div>
 
-                            <button type="submit" style="width: 100%; background: #23a55a; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px;">Zapisz i aktualizuj stały panel</button>
+                            <button type="submit" style="width: 100%; background: #23a55a; color: white; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px;">Zapisz i zaktualizuj panel</button>
                         </form>
                         <script>
                             (function() {
-                                let flatItems = ${JSON.stringify(categoriesFlattened)};
+                                let flatItems = ${JSON.stringify(categoriesGrouped)};
                                 window.renderCats_${g.id}_${mod.id} = function() {
                                     const container = document.getElementById('cats_${g.id}_${mod.id}');
                                     container.innerHTML = '';
@@ -203,10 +204,10 @@ app.get('/dashboard', async (req, res) => {
                                         const d = document.createElement('div');
                                         d.style.cssText = 'background: #1e1f22; padding: 6px; border-radius: 4px; margin-bottom: 5px; border: 1px solid #383a40;';
                                         d.innerHTML = \`
-                                            <div style="display:flex; justify-content:space-between; margin-bottom:3px;"><span style="font-size:10px; color:#5865F2;">Kat. ID: \${Number(item.cIndex) + 1}</span><button type="button" onclick="window.remItem_${g.id}_${mod.id}(\${idx})" style="background:#f23f43; color:#fff; border:none; padding:1px 4px; border-radius:2px; font-size:9px; cursor:pointer;">X</button></div>
+                                            <div style="display:flex; justify-content:space-between; margin-bottom:3px;"><span style="font-size:10px; color:#5865F2;">Kategoria ID: \${Number(item.cIndex) + 1}</span><button type="button" onclick="window.remItem_${g.id}_${mod.id}(\${idx})" style="background:#f23f43; color:#fff; border:none; padding:1px 4px; border-radius:2px; font-size:9px; cursor:pointer;">X</button></div>
                                             <input type="hidden" name="catIndex[]" value="\${item.cIndex}" form="modForm_${g.id}_${mod.id}">
                                             <input type="text" name="catName[]" value="\${(item.name || '').replace(/"/g, '&quot;')}" required form="modForm_${g.id}_${mod.id}" placeholder="Nazwa kategorii w menu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; margin-bottom:3px;">
-                                            <textarea name="catQuestion[]" required form="modForm_${g.id}_${mod.id}" placeholder="Treść pytania w formularzu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; height:35px;">\${item.question || ''}</textarea>
+                                            <textarea name="catQuestion[]" required form="modForm_${g.id}_${mod.id}" placeholder="Treść pytania w modalu" style="width:100%; padding:4px; background:#2b2d31; color:#fff; border:1px solid #4e5058; border-radius:3px; font-size:10px; height:35px;">\${item.question || ''}</textarea>
                                         \`;
                                         container.appendChild(d);
                                     });
@@ -236,7 +237,7 @@ app.get('/dashboard', async (req, res) => {
             serversHtml += `
                 <p style="color: #23a55a; font-size: 12px; margin: 0 0 10px 0;">✔ Bot jest na serwerze</p>
                 <form method="POST" action="/configure-ticket" id="newModForm_${g.id}" style="background: #222428; padding: 10px; border-radius: 6px; margin-bottom: 15px; border: 1px dashed #5865F2;">
-                    <strong style="color: #5865F2; font-size: 12px; display:block; margin-bottom:6px;">➕ Utwórz nowy stały panel</strong>
+                    <strong style="color: #5865F2; font-size: 12px; display:block; margin-bottom:6px;">➕ Utwórz nowy panel ticketów</strong>
                     <input type="hidden" name="guildId" value="${g.id}">
                     <label style="font-size: 10px; color: #dbdee1;">Kanał nowego panelu:</label>
                     <select name="ticketChannelId" form="newModForm_${g.id}" required style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">${channelOptions}</select>
@@ -276,7 +277,7 @@ clientInstance = client;
 client.once('ready', async () => {
     console.log(`Zalogowano jako ${client.user.tag}!`);
 
-    // Rejestracja globalnej komendy /ticket z podpowiedziami (Autocomplete)
+    // Rejestracja globalnych komend /ticket oraz /weryfikacja z podpowiedziami
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     const commands = [
         new SlashCommandBuilder()
@@ -291,19 +292,63 @@ client.once('ready', async () => {
                             .setRequired(true)
                             .setAutocomplete(true)
                     )
+            ),
+        new SlashCommandBuilder()
+            .setName('weryfikacja')
+            .setDescription('Konfiguracja systemu weryfikacji')
+            .addChannelOption(option =>
+                option.setName('kanal')
+                    .setDescription('Kanał, na którym ma być panel weryfikacji')
+                    .setRequired(true)
+                    .addChannelTypes(ChannelType.GuildText)
+            )
+            .addChannelOption(option =>
+                option.setName('kanal_po_weryfikacji')
+                    .setDescription('Kanał docelowy po weryfikacji (opcjonalnie)')
+                    .setRequired(false)
+                    .addChannelTypes(ChannelType.GuildText)
             )
     ];
 
     try {
         await rest.put(Routes.applicationCommands(CONFIG.CLIENT_ID), { body: commands });
-        console.log('✅ Pomyślnie zarejestrowano komendę /ticket z autouzupełnianiem!');
+        console.log('✅ Pomyślnie zarejestrowano komendy /ticket oraz /weryfikacja!');
     } catch (error) {
         console.error('Błąd rejestracji komend:', error);
     }
 });
 
+// Automatyczne nadawanie roli Niezweryfikowany przy dołączeniu
+client.on('guildMemberAdd', async member => {
+    try {
+        let unverifiedRole = member.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
+        if (!unverifiedRole) {
+            unverifiedRole = await member.guild.roles.create({
+                name: 'Niezweryfikowany',
+                color: '#99aab5',
+                permissions: []
+            });
+
+            const config = await getServerConfig(member.guild.id);
+            const verifyChannelId = config.verification ? config.verification.channelId : null;
+
+            // Zabezpieczenie kanałów: rola widzi TYLKO kanał weryfikacji
+            member.guild.channels.cache.forEach(async (channel) => {
+                if (verifyChannelId && channel.id === verifyChannelId) {
+                    await channel.permissionOverwrites.create(unverifiedRole, { ViewChannel: true, SendMessages: true });
+                } else {
+                    await channel.permissionOverwrites.create(unverifiedRole, { ViewChannel: false });
+                }
+            });
+        }
+        await member.roles.add(unverifiedRole);
+    } catch (err) {
+        console.error('Błąd podczas dodawania roli niezweryfikowanego:', err);
+    }
+});
+
 client.on('interactionCreate', async interaction => {
-    await handleTicketInteraction(interaction, getServerConfig);
+    await handleTicketInteraction(interaction, getServerConfig, saveServerConfig);
 });
 
 client.login(process.env.DISCORD_TOKEN);
