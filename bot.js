@@ -3,7 +3,20 @@ const express = require('express');
 const session = require('express-session');
 const admin = require('firebase-admin');
 const multer = require('multer');
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+
+// Wbudowana obsługa plików do 8MB (konwersja na base64 do zapisu w bazie)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 8 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype && file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Dozwolone są tylko pliki graficzne (JPG, PNG)!'), false);
+        }
+    }
+});
+
 const { setupTicketsRouter, handleTicketInteraction } = require('./tickets');
 
 let db = null;
@@ -114,16 +127,17 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
-// Poprawiona obsługa Multera – bezpieczne przetwarzanie plików i linków
+// Bezpieczna obsługa plików JPG/PNG oraz linków w formularzu
 app.post('/configure-ticket', (req, res, next) => {
     upload.single('ticketImageFile')(req, res, function (err) {
-        if (err instanceof multer.MulterError) {
-            if (err.code === 'LIMIT_FILE_SIZE') {
-                return res.status(400).send('<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd: Za duży plik!</h2><p>Maksymalny rozmiar to 8 MB.</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a></div>');
-            }
-            return res.status(400).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd pliku:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a></div>`);
-        } else if (err) {
-            return res.status(500).send(`<div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;"><h2 style="color: #f23f43;">❌ Błąd serwera:</h2><p>${err.message}</p><a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a></div>`);
+        if (err) {
+            return res.status(400).send(`
+                <div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;">
+                    <h2 style="color: #f23f43;">❌ Błąd pliku:</h2>
+                    <p>${err.message}</p>
+                    <a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a>
+                </div>
+            `);
         }
 
         if (req.file) {
@@ -217,8 +231,8 @@ app.get('/dashboard', async (req, res) => {
                             <label style="font-size: 11px; color: #dbdee1;">Wklej link do obrazka (URL):</label>
                             <input type="url" name="ticketImageURL" value="${currentUrlVal}" placeholder="https://..." style="width: 100%; padding: 5px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 11px; margin-bottom: 6px;">
 
-                            <label style="font-size: 11px; color: #dbdee1;">LUB wgraj plik z komputera:</label>
-                            <input type="file" name="ticketImageFile" accept="image/*" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 10px; margin-bottom: 6px;">
+                            <label style="font-size: 11px; color: #dbdee1;">LUB wgraj plik JPG/PNG z komputera:</label>
+                            <input type="file" name="ticketImageFile" accept="image/jpeg,image/png" style="width: 100%; padding: 4px; background: #1e1f22; color: #fff; border: 1px solid #4e5058; border-radius: 4px; font-size: 10px; margin-bottom: 6px;">
 
                             <label style="font-size: 11px; color: #dbdee1; font-weight:bold; display:block; margin-top:5px;">Kategorie i pytania:</label>
                             <div id="cats_${g.id}_${mod.id}"></div>
@@ -329,61 +343,14 @@ client.once('ready', async () => {
                             .setRequired(true)
                             .setAutocomplete(true)
                     )
-            ),
-        new SlashCommandBuilder()
-            .setName('weryfikacja')
-            .setDescription('Konfiguracja systemu weryfikacji')
-            .addChannelOption(option =>
-                option.setName('kanal')
-                    .setDescription('Kanał weryfikacji')
-                    .setRequired(true)
-                    .addChannelTypes(ChannelType.GuildText)
-            )
-            .addRoleOption(option =>
-                option.setName('rola_po_weryfikacji')
-                    .setDescription('Rola nadawana po udanej weryfikacji')
-                    .setRequired(true)
-            )
-            .addChannelOption(option =>
-                option.setName('kanal_po_weryfikacji')
-                    .setDescription('Kanał docelowy po weryfikacji (opcjonalnie)')
-                    .setRequired(false)
-                    .addChannelTypes(ChannelType.GuildText)
             )
     ];
 
     try {
         await rest.put(Routes.applicationCommands(CONFIG.CLIENT_ID), { body: commands });
-        console.log('✅ Pomyślnie zarejestrowano komendy /ticket oraz /weryfikacja!');
+        console.log('✅ Pomyślnie zarejestrowano komendę /ticket!');
     } catch (error) {
         console.error('Błąd rejestracji komend:', error);
-    }
-});
-
-client.on('guildMemberAdd', async member => {
-    try {
-        let unverifiedRole = member.guild.roles.cache.find(r => r.name === 'Niezweryfikowany');
-        if (!unverifiedRole) {
-            unverifiedRole = await member.guild.roles.create({
-                name: 'Niezweryfikowany',
-                color: '#99aab5',
-                permissions: []
-            });
-
-            const config = await getServerConfig(member.guild.id);
-            const verifyChannelId = config.verification ? config.verification.channelId : null;
-
-            member.guild.channels.cache.forEach(async (channel) => {
-                if (verifyChannelId && channel.id === verifyChannelId) {
-                    await channel.permissionOverwrites.create(unverifiedRole, { ViewChannel: true, SendMessages: true });
-                } else {
-                    await channel.permissionOverwrites.create(unverifiedRole, { ViewChannel: false });
-                }
-            });
-        }
-        await member.roles.add(unverifiedRole);
-    } catch (err) {
-        console.error('Błąd podczas dodawania roli niezweryfikowanego:', err);
     }
 });
 
