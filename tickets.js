@@ -142,10 +142,52 @@ async function handleTicketInteraction(interaction, getServerConfig) {
         const config = await getServerConfig(interaction.guild.id);
         const ticketModules = config.ticketModules || [];
 
+        // Obsługa Komend Ukośnika (Slash Commands) oraz podpowiedzi (Autocomplete)
+        if (interaction.isChatInputCommand()) {
+            if (interaction.commandName === 'ticket') {
+                const subCommand = interaction.options.getSubcommand();
+                if (subCommand === 'panel') {
+                    const panelId = interaction.options.getString('panel');
+                    const targetModule = ticketModules.find(m => m.id === panelId) || ticketModules[0];
+                    if (!targetModule) return interaction.reply({ content: '❌ Nie znaleziono żadnego aktywnego panelu ticketów.', ephemeral: true });
+
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`ticket_select_${targetModule.id}`)
+                        .setPlaceholder('Wybierz kategorię zgłoszenia...')
+                        .addOptions(
+                            targetModule.categories.map((cat, idx) => ({
+                                label: cat.name.substring(0, 25),
+                                value: `cat_${idx}`,
+                                description: `Otwórz zgłoszenie: ${cat.name}`.substring(0, 50)
+                            }))
+                        );
+
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    await interaction.channel.send({
+                        content: `${targetModule.title}\n${targetModule.message}`,
+                        components: [row]
+                    });
+                    return await interaction.reply({ content: '✅ Pomyślnie wysłano panel ticketów na ten kanał!', ephemeral: true });
+                }
+            }
+        }
+
+        if (interaction.isAutocomplete()) {
+            if (interaction.commandName === 'ticket') {
+                const focusedOption = interaction.options.getFocused(true);
+                if (focusedOption.name === 'panel') {
+                    const choices = ticketModules.map(m => ({ name: m.title.replace(/\*/g, ''), value: m.id }));
+                    const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase()));
+                    return await interaction.respond(filtered.slice(0, 25));
+                }
+            }
+        }
+
+        // Wybór kategorii z menu
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('ticket_select_')) {
             const moduleId = interaction.customId.replace('ticket_select_', '');
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
-            if (!currentModule) return interaction.reply({ content: 'Nie znaleziono konfiguracji panelu.', ephemeral: true });
+            if (!currentModule) return interaction.reply({ content: '❌ Nie znaleziono konfiguracji panelu.', ephemeral: true });
 
             const selectedValue = interaction.values[0];
             const catIndex = parseInt(selectedValue.split('_')[1]);
@@ -164,9 +206,10 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                 .setRequired(true);
 
             modal.addComponents(new ActionRowBuilder().addComponents(answerInput));
-            await interaction.showModal(modal);
+            return await interaction.showModal(modal);
         }
 
+        // Obsługa odpowiedzi z modalu
         if (interaction.isModalSubmit() && interaction.customId.startsWith('ticket_modal_')) {
             const parts = interaction.customId.split('_');
             const moduleId = parts[2];
@@ -174,10 +217,15 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             const questionIndex = parseInt(parts[4]);
 
             const currentModule = ticketModules.find(m => m.id === moduleId) || ticketModules[0];
-            if (!currentModule) return interaction.reply({ content: 'Błąd modułu.', ephemeral: true });
+            if (!currentModule) return interaction.reply({ content: '❌ Błąd modułu.', ephemeral: true });
 
             const category = currentModule.categories[catIndex];
-            const userAnswer = interaction.fields.getTextInputValue('ticket_q_0');
+            let userAnswer = '';
+            try {
+                userAnswer = interaction.fields.getTextInputValue('ticket_q_0');
+            } catch (e) {
+                userAnswer = 'Brak odpowiedzi';
+            }
 
             if (!interaction.client.tempAnswers) interaction.client.tempAnswers = {};
             const userKey = `${interaction.user.id}_${moduleId}`;
@@ -185,12 +233,14 @@ async function handleTicketInteraction(interaction, getServerConfig) {
             if (!interaction.client.tempAnswers[userKey]) {
                 interaction.client.tempAnswers[userKey] = { answers: [] };
             }
+            
             interaction.client.tempAnswers[userKey].answers.push({
-                question: category.questions[questionIndex],
+                question: category.questions[questionIndex] || 'Pytanie',
                 answer: userAnswer
             });
 
             const nextQIndex = questionIndex + 1;
+            
             if (nextQIndex < category.questions.length) {
                 const modal = new ModalBuilder()
                     .setCustomId(`ticket_modal_${moduleId}_${catIndex}_${nextQIndex}`)
@@ -248,9 +298,10 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                 components: [actionRow]
             });
 
-            await interaction.editReply({ content: `Utworzono Twój stały ticket: ${ticketChannel}!` });
+            return await interaction.editReply({ content: `✅ Utworzono Twój stały ticket: ${ticketChannel}!` });
         }
 
+        // Obsługa przycisków w ticketach
         if (interaction.isButton()) {
             if (interaction.customId === 'claim_ticket') {
                 let isSupport = interaction.member.permissions.has(PermissionsBitField.Flags.Administrator);
@@ -262,17 +313,24 @@ async function handleTicketInteraction(interaction, getServerConfig) {
                         }
                     }
                 }
-                if (!isSupport) return interaction.reply({ content: 'Brak uprawnień do przejęcia!', ephemeral: true });
-                await interaction.reply({ content: `🙋‍♂️ Ticket przejęty przez **${interaction.user.tag}**.` });
+                if (!isSupport) return interaction.reply({ content: '❌ Brak uprawnień do przejęcia!', ephemeral: true });
+                return await interaction.reply({ content: `🙋‍♂️ Ticket przejęty przez **${interaction.user.tag}**.` });
             }
 
             if (interaction.customId === 'close_ticket') {
-                await interaction.reply({ content: 'Zamykanie ticketu za 3 sekundy...' });
+                await interaction.reply({ content: '🔒 Zamykanie ticketu za 3 sekundy...' });
                 setTimeout(() => interaction.channel.delete().catch(() => {}), 3000);
             }
         }
     } catch (err) {
         console.error('Błąd interakcji ticketu:', err);
+        try {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.editReply({ content: `❌ Wystąpił błąd: ${err.message}` });
+            } else {
+                await interaction.reply({ content: `❌ Wystąpił błąd: ${err.message}`, ephemeral: true });
+            }
+        } catch (e) {}
     }
 }
 
