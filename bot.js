@@ -1,24 +1,10 @@
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, PermissionsBitField, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle, SlashCommandBuilder, REST, Routes, ChannelType, EmbedBuilder, PermissionsBitField } = require('discord.js');
 const express = require('express');
 const session = require('express-session');
 const admin = require('firebase-admin');
 const multer = require('multer');
 
-// Wbudowana obsługa plików do 8MB (konwersja na base64 do zapisu w bazie)
-const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 8 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype && file.mimetype.startsWith('image/')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Dozwolone są tylko pliki graficzne (JPG, PNG)!'), false);
-        }
-    }
-});
-
-const { setupTicketsRouter, handleTicketInteraction } = require('./tickets');
-
+// --- 1. Konfiguracja Firebase ---
 let db = null;
 try {
     if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -29,9 +15,9 @@ try {
         admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     }
     db = admin.firestore();
-    console.log("✅ Połączono z Firebase!");
+    console.log("✅ Połączono z bazą Firebase!");
 } catch (e) {
-    console.error("❌ Błąd Firebase:", e.message);
+    console.error("❌ Błąd inicjalizacji Firebase:", e.message);
 }
 
 async function getServerConfig(guildId) {
@@ -51,6 +37,7 @@ async function saveServerConfig(guildId, data) {
     } catch (err) {}
 }
 
+// --- 2. Konfiguracja Aplikacji ---
 const CONFIG = {
     CLIENT_ID: process.env.DISCORD_CLIENT_ID || '1548644251884195880',
     CLIENT_SECRET: process.env.DISCORD_CLIENT_SECRET || 'emTOywckSfXFKr8xCwWNiJW_6az1IAE0',
@@ -71,15 +58,25 @@ app.use(session({
     resave: true,
     saveUninitialized: false,
     proxy: true,
-    cookie: { 
-        secure: true, 
-        maxAge: 30 * 24 * 60 * 60 * 1000 
-    }
+    cookie: { secure: true, maxAge: 30 * 24 * 60 * 60 * 1000 }
 }));
 
+// Multer do obsługi plików (max 8MB)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 8 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype && file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Dozwolone są wyłącznie pliki graficzne (JPG, PNG)!'), false);
+        }
+    }
+});
+
+// --- 3. Panel WWW & Endpointy ---
 app.get('/', (req, res) => {
     if (req.session.loggedIn && req.session.user) return res.redirect('/dashboard');
-
     const discordAuthUrl = `https://discord.com/api/oauth2/authorize?client_id=${CONFIG.CLIENT_ID}&redirect_uri=${encodeURIComponent(CONFIG.REDIRECT_URI)}&response_type=code&scope=identify%20guilds`;
 
     res.send(`
@@ -88,7 +85,7 @@ app.get('/', (req, res) => {
             <body>
                 <div class="card">
                     <h1>Panel Tivkety</h1>
-                    <p style="color:#949ba4; font-size:13px; margin-bottom:20px;">Zarządzanie ticketami i weryfikacją</p>
+                    <p style="color:#949ba4; font-size:13px; margin-bottom:20px;">Zarządzanie systemem zgłoszeń</p>
                     <a href="${discordAuthUrl}">Zaloguj przez Discord</a>
                 </div>
             </body>
@@ -127,32 +124,97 @@ app.get('/logout', (req, res) => {
     req.session.destroy(() => res.redirect('/')); 
 });
 
-// Bezpieczna obsługa plików JPG/PNG oraz linków w formularzu
-app.post('/configure-ticket', (req, res, next) => {
-    upload.single('ticketImageFile')(req, res, function (err) {
-        if (err) {
-            return res.status(400).send(`
-                <div style="font-family: Arial; background: #313338; color: #fff; text-align: center; padding: 50px;">
-                    <h2 style="color: #f23f43;">❌ Błąd pliku:</h2>
-                    <p>${err.message}</p>
-                    <a href="/dashboard" style="color: #5865F2; font-weight: bold; text-decoration: none;">Wróć</a>
-                </div>
-            `);
-        }
+// Endpoint konfiguracji i tworzenia panelu
+app.post('/configure-ticket', upload.single('ticketImageFile'), async (req, res) => {
+    if (!req.session.loggedIn || !req.session.user) return res.redirect('/');
+    const guildId = req.body.guildId;
+    if (!guildId) return res.status(400).send('Brak ID serwera');
 
-        if (req.file) {
-            const b64 = Buffer.from(req.file.buffer).toString('base64');
-            req.body.ticketImageText = `data:${req.file.mimetype};base64,${b64}`;
-        } else {
-            req.body.ticketImageText = req.body.ticketImageURL || '';
+    let imageValue = '';
+    if (req.file) {
+        const b64 = Buffer.from(req.file.buffer).toString('base64');
+        imageValue = `data:${req.file.mimetype};base64,${b64}`;
+    } else {
+        imageValue = req.body.ticketImageURL || '';
+    }
+
+    const config = await getServerConfig(guildId);
+    if (!config.ticketModules) config.ticketModules = [];
+
+    let moduleId = req.body.moduleId;
+    let targetModule;
+
+    if (!moduleId) {
+        // Tworzenie nowego panelu
+        moduleId = 'mod_' + Date.now();
+        targetModule = {
+            id: moduleId,
+            channelId: req.body.ticketChannelId || '',
+            title: '🎫 Centrum Pomocy',
+            message: 'Kliknij przycisk poniżej, aby otworzyć zgłoszenie.',
+            image: imageValue,
+            supportRoles: [],
+            categories: [{ name: 'Ogólne', questions: ['Opisz swój problem:'] }]
+        };
+        config.ticketModules.push(targetModule);
+    } else {
+        // Edycja istniejącego
+        targetModule = config.ticketModules.find(m => m.id === moduleId);
+        if (targetModule) {
+            targetModule.channelId = req.body.ticketChannelId || targetModule.channelId;
+            targetModule.title = req.body.ticketTitle || targetModule.title;
+            targetModule.message = req.body.ticketMessage || targetModule.message;
+            if (imageValue) targetModule.image = imageValue;
+            
+            let roles = req.body.supportRoles;
+            targetModule.supportRoles = Array.isArray(roles) ? roles : (roles ? [roles] : []);
+
+            // Przetwarzanie kategorii i pytań wysłanych z formularza
+            const cIndexes = req.body['catIndex[]'];
+            const cNames = req.body['catName[]'];
+            const cQuestions = req.body['catQuestion[]'];
+
+            if (cNames) {
+                const indexes = Array.isArray(cIndexes) ? cIndexes : [cIndexes];
+                const names = Array.isArray(cNames) ? cNames : [cNames];
+                const questions = Array.isArray(cQuestions) ? cQuestions : [cQuestions];
+
+                const catMap = {};
+                names.forEach((name, idx) => {
+                    const cIdx = indexes[idx] || '0';
+                    if (!catMap[cIdx]) {
+                        catMap[cIdx] = { name: name, questions: [] };
+                    }
+                    if (questions[idx]) {
+                        catMap[cIdx].questions.push(questions[idx]);
+                    }
+                });
+                targetModule.categories = Object.values(catMap);
+            }
         }
-        next();
-    });
+    }
+
+    await saveServerConfig(guildId, config);
+    res.redirect('/dashboard');
+});
+
+// Endpoint usuwania panelu
+app.post('/delete-ticket-module', async (req, res) => {
+    if (!req.session.loggedIn || !req.session.user) return res.redirect('/');
+    const { guildId, moduleId } = req.body;
+    if (guildId && moduleId) {
+        const config = await getServerConfig(guildId);
+        if (config.ticketModules) {
+            config.ticketModules = config.ticketModules.filter(m => m.id !== moduleId);
+            await saveServerConfig(guildId, config);
+        }
+    }
+    res.redirect('/dashboard');
 });
 
 app.get('/dashboard', async (req, res) => {
     if (!req.session.loggedIn || !req.session.user) return res.redirect('/');
-    if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia... Odśwież za chwilę.');
+    if (!clientInstance || !clientInstance.isReady()) return res.send('Bot się uruchamia... Odśwież stronę za kilka sekund.');
 
     const user = req.session.user;
     const adminGuilds = (req.session.userGuilds || []).filter(g => (BigInt(g.permissions) & BigInt(0x8)) === BigInt(0x8) || g.owner);
@@ -318,16 +380,14 @@ app.get('/dashboard', async (req, res) => {
     `);
 });
 
-setupTicketsRouter(app, getServerConfig, saveServerConfig, () => clientInstance);
-app.listen(CONFIG.PORT, () => console.log(`Serwer HTTP działa na porcie ${CONFIG.PORT}`));
-
+// --- 4. Logika Bota Discord (Komendy, Panele, Tickety) ---
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
 });
 clientInstance = client;
 
 client.once('ready', async () => {
-    console.log(`Zalogowano jako ${client.user.tag}!`);
+    console.log(`🤖 Zalogowano jako ${client.user.tag}!`);
 
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     const commands = [
@@ -338,8 +398,8 @@ client.once('ready', async () => {
                 sub.setName('panel')
                     .setDescription('Wysyła panel zgłoszeń na ten kanał')
                     .addStringOption(option =>
-                        option.setName('panel')
-                            .setDescription('Wybierz panel do wysłania')
+                        option.setName('panel_id')
+                            .setDescription('ID panelu lub wybierz z listy')
                             .setRequired(true)
                             .setAutocomplete(true)
                     )
@@ -348,14 +408,208 @@ client.once('ready', async () => {
 
     try {
         await rest.put(Routes.applicationCommands(CONFIG.CLIENT_ID), { body: commands });
-        console.log('✅ Pomyślnie zarejestrowano komendę /ticket!');
+        console.log('✅ Zarejestrowano komendę /ticket');
     } catch (error) {
         console.error('Błąd rejestracji komend:', error);
     }
 });
 
+// Autocomplete dla komendy /ticket panel
 client.on('interactionCreate', async interaction => {
-    await handleTicketInteraction(interaction, getServerConfig, saveServerConfig);
+    if (interaction.isAutocomplete()) {
+        if (interaction.commandName === 'ticket') {
+            const config = await getServerConfig(interaction.guildId);
+            const modules = config.ticketModules || [];
+            const choices = modules.map((m, idx) => ({
+                name: `Panel #${idx + 1}: ${(m.title || 'Panel').substring(0, 50)}`,
+                value: m.id
+            }));
+            await interaction.respond(choices.slice(0, 25));
+        }
+        return;
+    }
+
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'ticket') {
+            const sub = interaction.options.getSubcommand();
+            if (sub === 'panel') {
+                const moduleId = interaction.options.getString('panel_id');
+                const config = await getServerConfig(interaction.guildId);
+                const modules = config.ticketModules || [];
+                const mod = modules.find(m => m.id === moduleId);
+
+                if (!mod) {
+                    return interaction.reply({ content: '❌ Nie znaleziono takiego panelu w bazie!', ephemeral: true });
+                }
+
+                const embed = new EmbedBuilder()
+                    .setTitle(mod.title || 'Centrum Pomocy')
+                    .setDescription(mod.message || 'Kliknij przycisk poniżej, aby otworzyć ticket.')
+                    .setColor('#5865F2');
+
+                if (mod.image) {
+                    embed.setImage(mod.image);
+                }
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`open_ticket_${mod.id}`)
+                        .setLabel('Stwórz zgłoszenie')
+                        .setStyle(ButtonStyle.Primary)
+                        .setEmoji('🎫')
+                );
+
+                const channel = interaction.guild.channels.cache.get(mod.channelId) || interaction.channel;
+                await channel.send({ embeds: [embed], components: [row] });
+                await interaction.reply({ content: `✅ Wysłano panel zgłoszeń na kanał ${channel}!`, ephemeral: true });
+            }
+        }
+    }
+
+    // Obsługa kliknięcia przycisku "Stwórz zgłoszenie"
+    if (interaction.isButton() && interaction.customId.startsWith('open_ticket_')) {
+        const moduleId = interaction.customId.replace('open_ticket_', '');
+        const config = await getServerConfig(interaction.guildId);
+        const modules = config.ticketModules || [];
+        const mod = modules.find(m => m.id === moduleId);
+
+        if (!mod) {
+            return interaction.reply({ content: '❌ Ten panel zgłoszeń został usunięty lub zaktualizowany.', ephemeral: true });
+        }
+
+        const categories = mod.categories || [{ name: 'Pomoc', questions: ['Opisz problem:'] }];
+        
+        if (categories.length === 1) {
+            // Wyświetlenie modala od razu dla 1 kategorii
+            const cat = categories[0];
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_ticket_${moduleId}_0`)
+                .setTitle(`Ticket: ${cat.name.substring(0, 30)}`);
+
+            const qs = Array.isArray(cat.questions) ? cat.questions : [cat.question || 'Opisz problem:'];
+            qs.slice(0, 5).forEach((q, qIdx) => {
+                const textInput = new TextInputBuilder()
+                    .setCustomId(`q_${qIdx}`)
+                    .setLabel(q.substring(0, 45))
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true);
+                modal.addComponents(new ActionRowBuilder().addComponents(textInput));
+            });
+
+            await interaction.showModal(modal);
+        } else {
+            // Wybór kategorii przez menu przycisków
+            const row = new ActionRowBuilder();
+            categories.slice(0, 5).forEach((cat, cIdx) => {
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`sel_cat_${moduleId}_${cIdx}`)
+                        .setLabel(cat.name.substring(0, 80))
+                        .setStyle(ButtonStyle.Secondary)
+                );
+            });
+            await interaction.reply({ content: 'Wybierz kategorię zgłoszenia:', components: [row], ephemeral: true });
+        }
+    }
+
+    // Obsługa wyboru kategorii w menu wielokategoriowym
+    if (interaction.isButton() && interaction.customId.startsWith('sel_cat_')) {
+        const parts = interaction.customId.split('_');
+        const moduleId = parts[2];
+        const catIdx = parseInt(parts[3]);
+
+        const config = await getServerConfig(interaction.guildId);
+        const modules = config.ticketModules || [];
+        const mod = modules.find(m => m.id === moduleId);
+        if (!mod || !mod.categories || !mod.categories[catIdx]) {
+            return interaction.update({ content: '❌ Wybrana kategoria już nie istnieje.', components: [] });
+        }
+
+        const cat = mod.categories[catIdx];
+        const modal = new ModalBuilder()
+            .setCustomId(`modal_ticket_${moduleId}_${catIdx}`)
+            .setTitle(`Ticket: ${cat.name.substring(0, 30)}`);
+
+        const qs = Array.isArray(cat.questions) ? cat.questions : ['Opisz problem:'];
+        qs.slice(0, 5).forEach((q, qIdx) => {
+            const textInput = new TextInputBuilder()
+                .setCustomId(`q_${qIdx}`)
+                .setLabel(q.substring(0, 45))
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(textInput));
+        });
+
+        await interaction.showModal(modal);
+    }
+
+    // Przesłanie modala i utworzenie kanału ticketu
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('modal_ticket_')) {
+        const parts = interaction.customId.split('_');
+        const moduleId = parts[2];
+        const catIdx = parseInt(parts[3]);
+
+        const config = await getServerConfig(interaction.guildId);
+        const modules = config.ticketModules || [];
+        const mod = modules.find(m => m.id === moduleId);
+        if (!mod) return interaction.reply({ content: '❌ Błąd konfiguracji panelu.', ephemeral: true });
+
+        const cat = (mod.categories && mod.categories[catIdx]) ? mod.categories[catIdx] : { name: 'Pomoc', questions: [] };
+
+        // Uprawnienia i tworzenie kanału
+        const guild = interaction.guild;
+        const supportRoles = mod.supportRoles || [];
+        
+        const permissionOverwrites = [
+            { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+            { id: interaction.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] }
+        ];
+
+        supportRoles.forEach(roleId => {
+            permissionOverwrites.push({ id: roleId, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] });
+        });
+
+        const ticketChannel = await guild.channels.create({
+            name: `ticket-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 25),
+            type: ChannelType.GuildText,
+            permissionOverwrites: permissionOverwrites
+        });
+
+        // Zbieranie odpowiedzi z modala
+        let answersHtml = '';
+        const qs = Array.isArray(cat.questions) ? cat.questions : ['Opisz problem:'];
+        qs.forEach((q, qIdx) => {
+            const val = interaction.fields.getTextInputValue(`q_${qIdx}`) || 'Brak odpowiedzi';
+            answersHtml += `**${q}**\n${val}\n\n`;
+        });
+
+        const ticketEmbed = new EmbedBuilder()
+            .setTitle(`Zgłoszenie: ${cat.name}`)
+            .setDescription(`Witaj ${interaction.user}!\n\n${answersHtml}`)
+            .setColor('#23a55a')
+            .setTimestamp();
+
+        const closeRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId('close_ticket')
+                .setLabel('Zamknij ticket')
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji('🔒')
+        );
+
+        await ticketChannel.send({ content: `${interaction.user} ${supportRoles.map(r => `<@&${r}>`).join(' ')}`, embeds: [ticketEmbed], components: [closeRow] });
+        await interaction.reply({ content: `✅ Utworzono zgłoszenie: ${ticketChannel}`, ephemeral: true });
+    }
+
+    // Zamknięcie kanału ticketu
+    if (interaction.isButton() && interaction.customId === 'close_ticket') {
+        await interaction.reply({ content: '🔒 Zamykanie ticketu za 5 sekund...' });
+        setTimeout(() => {
+            interaction.channel.delete().catch(() => {});
+        }, 5000);
+    }
 });
 
+// --- 5. Uruchomienie aplikacji ---
+app.listen(CONFIG.PORT, () => console.log(`🚀 Serwer HTTP działa na porcie ${CONFIG.PORT}`));
 client.login(process.env.DISCORD_TOKEN);
